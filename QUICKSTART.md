@@ -86,6 +86,18 @@ Es muss `{"ok": true, "model": "gemma3:4b"}` erscheinen.
 4. **Übernehmen** ersetzt den Text im Feld. **Vorlesen** liest ihn noch einmal vor.
 5. Gesendet wird nie automatisch. Das machst du selbst in der App.
 
+## Bessere Wortvorschläge (optional)
+
+Tippt man im Vorschlag ein Wort an (gelb) und noch einmal, schlägt der Server ein anderes Wort vor.
+Das kleine Modell `gemma3:4b` trifft das nur mäßig. Ein zweites, größeres Modell nur dafür hilft:
+
+```sh
+HENRI_REWORD_MODEL=qwen2.5:7b ./Start-Henri.command     # Mac
+```
+
+Beim ersten Start wird es geladen (ca. 4,7 GB). Zwei Modelle brauchen mehr Arbeitsspeicher.
+Von Hand: `LLM_MODEL=gemma3:4b LLM_REWORD_MODEL=qwen2.5:7b python3 server.py`.
+
 ## Wenn etwas nicht klappt
 
 | Problem | Ursache und Lösung |

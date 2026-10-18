@@ -1,6 +1,7 @@
 package de.henri.keyboard
 
 import android.content.Context
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -35,6 +36,25 @@ object Api {
         conn.doOutput = true
         conn.outputStream.use { it.write(body) }
         return JSONObject(read(conn)).getString("text")
+    }
+
+    /**
+     * Bis zu 5 andere Wörter für [word] im Satzzusammenhang (wahrscheinlichstes zuerst).
+     * [original] ist der getippte Text, [before]/[after] umgeben das Wort im Vorschlag.
+     */
+    fun reword(c: Context, original: String, before: String, word: String, after: String, rejected: List<String>): List<String> {
+        val body = JSONObject()
+            .put("original", original)
+            .put("before", before)
+            .put("word", word)
+            .put("after", after)
+            .put("rejected", JSONArray(rejected))
+            .toString().toByteArray()
+        val conn = open(c, "/reword", "POST")
+        conn.doOutput = true
+        conn.outputStream.use { it.write(body) }
+        val words = JSONObject(read(conn)).getJSONArray("words")
+        return List(words.length()) { words.getString(it) }
     }
 
     fun health(c: Context): String {

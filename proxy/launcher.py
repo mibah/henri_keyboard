@@ -6,6 +6,7 @@
 (python3 server.py) funktioniert weiterhin; ein so gestarteter Proxy wird erkannt.
 
   HENRI_MODEL  Modell (Standard gemma3:4b)
+  HENRI_REWORD_MODEL  optional anderes Modell für "anderes Wort vorschlagen" (z. B. qwen2.5:7b)
   PORT         Port des Proxys (Standard 8787)
   PANEL_PORT   Port dieser Seite (Standard 8790, nur lokal erreichbar)
 """
@@ -26,12 +27,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MODEL = os.environ.get("HENRI_MODEL", "gemma3:4b")
+REWORD_MODEL = os.environ.get("HENRI_REWORD_MODEL", "") or MODEL  # optional anderes Modell für "anderes Wort"
+MODELS = list(dict.fromkeys([MODEL, REWORD_MODEL]))
 PROXY_PORT = int(os.environ.get("PORT", "8787"))
 PANEL_PORT = int(os.environ.get("PANEL_PORT", "8790"))
 OLLAMA = "http://127.0.0.1:11434"
 
 # Der Proxy läuft in diesem Prozess (als Thread), damit Start und Stopp sauber gehen.
 os.environ["LLM_MODEL"] = MODEL
+os.environ["LLM_REWORD_MODEL"] = REWORD_MODEL
 import server  # noqa: E402
 
 state = {"phase": "aus", "step": "", "error": "", "pull": None}  # phase: aus|startet|bereit|fehler
@@ -63,12 +67,13 @@ def ollama_up():
         return False
 
 
-def model_present():
+def model_present(name=None):
+    name = name or MODEL
     try:
         names = {m["name"] for m in get_json(OLLAMA + "/api/tags")["models"]}
     except Exception:
         return False
-    return MODEL in names or (":" not in MODEL and MODEL + ":latest" in names)
+    return name in names or (":" not in name and name + ":latest" in names)
 
 
 def proxy_health():
@@ -120,11 +125,11 @@ def wait_for(check, seconds):
     return False
 
 
-def pull_model():
-    update(step=f"Sprachmodell {MODEL} wird geladen (einmalig, mehrere GB) …", pull=0)
+def pull_model(name):
+    update(step=f"Sprachmodell {name} wird geladen (einmalig, mehrere GB) …", pull=0)
     req = urllib.request.Request(
         OLLAMA + "/api/pull",
-        json.dumps({"name": MODEL, "stream": True}).encode(),
+        json.dumps({"name": name, "stream": True}).encode(),
         {"Content-Type": "application/json"},
     )
     with urllib.request.urlopen(req, timeout=90) as r:
@@ -148,13 +153,14 @@ def start_all():
             own["ollama"] = quiet_popen([exe, "serve"])
             if not wait_for(ollama_up, 40):
                 raise Problem("Ollama startet nicht. Bitte die Ollama-App von Hand öffnen.")
-        if not model_present():
-            try:
-                pull_model()
-            except Problem:
-                raise
-            except Exception:
-                raise Problem("Das Sprachmodell konnte nicht geladen werden. Internetverbindung prüfen.")
+        for name in MODELS:
+            if not model_present(name):
+                try:
+                    pull_model(name)
+                except Problem:
+                    raise
+                except Exception:
+                    raise Problem("Das Sprachmodell konnte nicht geladen werden. Internetverbindung prüfen.")
         if proxy_health() is None:
             update(step="Server wird gestartet …")
             try:
@@ -195,7 +201,7 @@ def status():
     with lock:
         s = dict(state)
     if s["phase"] != "startet":
-        if up and health is not None and model_present():
+        if up and health is not None and all(model_present(n) for n in MODELS):
             s["phase"] = "bereit"
         elif s["phase"] == "bereit":
             s["phase"] = "aus"
@@ -206,8 +212,8 @@ def status():
         "error": s["error"],
         "pull": s["pull"],
         "ollama": up,
-        "model": up and model_present(),
-        "modelName": MODEL,
+        "model": up and all(model_present(n) for n in MODELS),
+        "modelName": " + ".join(MODELS),
         "proxy": health is not None,
         "external": health is not None and not mine,
         "url": f"http://{ip}:{PROXY_PORT}" if ip else None,

@@ -1,20 +1,31 @@
 package de.henri.keyboard
 
+import android.animation.ValueAnimator
+import android.content.Context
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.inputmethodservice.InputMethodService
 import android.os.Handler
 import android.os.Looper
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.text.InputType
+import android.text.SpannableString
+import android.text.style.BackgroundColorSpan
+import android.text.style.ForegroundColorSpan
 import android.text.method.ScrollingMovementMethod
 import android.util.TypedValue
+import android.view.GestureDetector
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
+import android.view.animation.LinearInterpolator
 import android.view.inputmethod.EditorInfo
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -32,9 +43,15 @@ class KeyboardService : InputMethodService() {
     private val executor = Executors.newSingleThreadExecutor()
     private var tts: TextToSpeech? = null
     private var ttsReady = false
+    private var speaking = false
+    private var utteranceCounter = 0
+    private var currentUtterance = ""
 
     private lateinit var suggestionView: TextView
     private lateinit var scrollHint: TextView
+    private lateinit var hintRow: LinearLayout
+    private lateinit var spinner: Spinner
+    private lateinit var speakButton: TextView
     private lateinit var aiBar: LinearLayout
     private lateinit var applyButton: TextView
     private lateinit var keysContainer: LinearLayout
@@ -44,11 +61,20 @@ class KeyboardService : InputMethodService() {
     private var suggestion: String? = null
     private var sourceText: String? = null
     private var requestId = 0
+
+    // "Falsches Wort? Antippen, nochmal antippen": Kandidaten für die zuletzt angetippte Stelle
+    private var candidates: List<String> = emptyList()
+    private var candidateIndex = 0
+    private var candidateKey: String? = null // Text vor dem Wort; erkennt dieselbe Stelle wieder
+    private val rejected = mutableListOf<String>()
+    private var rewordBusy = false
+    private var selection: IntRange? = null // markiertes (gelbes) Wort im Vorschlag
     private val letterKeys = mutableListOf<Pair<TextView, String>>()
 
     private val bg = Color.rgb(18, 18, 18)
     private val keyBg = Color.rgb(58, 58, 62)
     private val specialBg = Color.rgb(32, 82, 140)
+    private val stopBg = Color.rgb(176, 42, 42)
 
     override fun onCreate() {
         super.onCreate()
@@ -56,6 +82,14 @@ class KeyboardService : InputMethodService() {
             if (status == TextToSpeech.SUCCESS) {
                 tts?.language = Locale.GERMAN
                 tts?.setSpeechRate(0.95f)
+                tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String?) {}
+                    override fun onDone(utteranceId: String?) = utteranceEnded(utteranceId)
+                    override fun onStop(utteranceId: String?, interrupted: Boolean) = utteranceEnded(utteranceId)
+
+                    @Deprecated("Pflicht-Override der Basisklasse")
+                    override fun onError(utteranceId: String?) = utteranceEnded(utteranceId)
+                })
                 ttsReady = true
             }
         }
@@ -84,22 +118,41 @@ class KeyboardService : InputMethodService() {
             // Balken hat die Tastatur beim Zeichnen zum Absturz gebracht.
             movementMethod = ScrollingMovementMethod.getInstance()
             visibility = View.GONE
+            val gestures = GestureDetector(this@KeyboardService, object : GestureDetector.SimpleOnGestureListener() {
+                override fun onSingleTapUp(e: MotionEvent): Boolean {
+                    onWordTap(e.x, e.y)
+                    return true
+                }
+            })
+            // false: das Feld behandelt Wischen weiterhin selbst (Scrollen)
+            setOnTouchListener { _, ev ->
+                gestures.onTouchEvent(ev)
+                false
+            }
         }
         root.addView(suggestionView, LinearLayout.LayoutParams(-1, -2))
 
-        scrollHint = TextView(this).apply {
-            text = "↕ Mehr Text: im Feld nach oben oder unten wischen"
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-            setTextColor(Color.rgb(255, 193, 7))
+        hintRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
             setBackgroundColor(Color.rgb(30, 30, 36))
             setPadding(dp(12), 0, dp(12), dp(6))
             visibility = View.GONE
         }
-        root.addView(scrollHint, LinearLayout.LayoutParams(-1, -2))
+        spinner = Spinner(this, Color.rgb(255, 193, 7)).apply { visibility = View.GONE }
+        hintRow.addView(spinner, LinearLayout.LayoutParams(dp(22), dp(22)).apply { rightMargin = dp(10) })
+        scrollHint = TextView(this).apply {
+            text = HINT_SELECT
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            setTextColor(Color.rgb(255, 193, 7))
+        }
+        hintRow.addView(scrollHint, LinearLayout.LayoutParams(-2, -2))
+        root.addView(hintRow, LinearLayout.LayoutParams(-1, -2))
 
         aiBar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         aiBar.addView(bigButton("Verbessern", Color.rgb(30, 120, 60)) { improve() }, weighted(1.2f))
-        aiBar.addView(bigButton("Vorlesen", specialBg) { speakCurrent() }, weighted(1f))
+        speakButton = bigButton("Vorlesen", specialBg) { speakCurrent() }
+        aiBar.addView(speakButton, weighted(1f))
         applyButton = bigButton("Übernehmen", Color.rgb(160, 90, 0)) { applySuggestion() }
         aiBar.addView(applyButton, weighted(1.2f))
         root.addView(aiBar, LinearLayout.LayoutParams(-1, dp(56)))
@@ -120,7 +173,7 @@ class KeyboardService : InputMethodService() {
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
-        tts?.stop()
+        stopSpeaking()
         clearSuggestion()
         super.onFinishInputView(finishingInput)
     }
@@ -155,6 +208,7 @@ class KeyboardService : InputMethodService() {
         }
         val id = ++requestId
         showStatus("Einen Moment …")
+        showBusy("Ich überarbeite deinen Text …")
         executor.execute {
             val result = try {
                 Api.correct(this, text)
@@ -170,13 +224,11 @@ class KeyboardService : InputMethodService() {
                     else -> {
                         sourceText = text
                         suggestion = result
-                        suggestionView.text = result
+                        resetRewordState()
+                        showSuggestionText(result)
                         suggestionView.scrollTo(0, 0)
                         suggestionView.visibility = View.VISIBLE
-                        suggestionView.post {
-                            scrollHint.visibility =
-                                if (suggestionView.canScrollVertically(1)) View.VISIBLE else View.GONE
-                        }
+                        suggestionView.post { resetHint() }
                         refreshApplyButton()
                         if (Api.autoSpeak(this)) speak(result)
                     }
@@ -198,26 +250,52 @@ class KeyboardService : InputMethodService() {
         ic.deleteSurroundingText(before.length, after.length)
         ic.commitText(s, 1)
         ic.endBatchEdit()
-        tts?.stop()
+        stopSpeaking()
         clearSuggestion()
         updateShiftFromCaps()
     }
 
+    /** Beim Lesen wird der Knopf zu „Stopp“. */
     private fun speakCurrent() {
+        if (speaking) {
+            stopSpeaking()
+            return
+        }
         val text = suggestion ?: fieldText()
         if (text.isNullOrBlank()) speak("Es ist noch nichts geschrieben.") else speak(text)
     }
 
     private fun speak(text: String) {
-        if (ttsReady) tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "henri")
+        if (!ttsReady) return
+        currentUtterance = "henri-${++utteranceCounter}"
+        setSpeaking(true)
+        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, currentUtterance)
+    }
+
+    private fun stopSpeaking() {
+        tts?.stop()
+        setSpeaking(false)
+    }
+
+    /** Ende einer Ansage; Meldungen einer schon abgelösten Ansage werden ignoriert. */
+    private fun utteranceEnded(id: String?) {
+        main.post { if (id == currentUtterance) setSpeaking(false) }
+    }
+
+    private fun setSpeaking(on: Boolean) {
+        speaking = on
+        if (!::speakButton.isInitialized) return
+        speakButton.text = if (on) "Stopp" else "Vorlesen"
+        (speakButton.background as? GradientDrawable)?.setColor(if (on) stopBg else specialBg)
     }
 
     private fun showStatus(msg: String) {
         suggestion = null
         sourceText = null
         suggestionView.text = msg
+        suggestionView.scrollTo(0, 0)
         suggestionView.visibility = View.VISIBLE
-        scrollHint.visibility = View.GONE
+        hideHint()
         refreshApplyButton()
     }
 
@@ -225,12 +303,162 @@ class KeyboardService : InputMethodService() {
         requestId++
         suggestion = null
         sourceText = null
+        resetRewordState()
         if (::suggestionView.isInitialized) {
             suggestionView.text = ""
+            suggestionView.scrollTo(0, 0)
             suggestionView.visibility = View.GONE
-            scrollHint.visibility = View.GONE
+            hideHint()
             refreshApplyButton()
         }
+    }
+
+    // ---------- Falsches Wort ersetzen ----------
+
+    private fun resetRewordState() {
+        candidates = emptyList()
+        candidateIndex = 0
+        candidateKey = null
+        rejected.clear()
+        rewordBusy = false
+        selection = null
+    }
+
+    /** Zeigt den Vorschlag; ein geändertes Wort ([hlStart] bis [hlEnd]) wird gelb markiert. */
+    private fun showSuggestionText(text: String, hlStart: Int = -1, hlEnd: Int = -1) {
+        val styled = SpannableString(text)
+        if (hlStart in 0 until hlEnd) {
+            styled.setSpan(BackgroundColorSpan(Color.rgb(255, 193, 7)), hlStart, hlEnd, 0)
+            styled.setSpan(ForegroundColorSpan(Color.BLACK), hlStart, hlEnd, 0)
+        }
+        suggestionView.text = styled
+    }
+
+    private fun resetHint() {
+        val base = if (selection != null) HINT_RENEW else HINT_SELECT
+        scrollHint.text = if (suggestionView.canScrollVertically(1)) "$base  ·  ↕ Mehr Text: wischen" else base
+        spinner.visibility = View.GONE
+        hintRow.visibility = if (suggestion == null) View.GONE else View.VISIBLE
+    }
+
+    private fun showHint(msg: String) {
+        scrollHint.text = msg
+        spinner.visibility = View.GONE
+        hintRow.visibility = View.VISIBLE
+    }
+
+    /** Hinweiszeile mit sich drehendem Kreis: zeigt, dass der Server gerade arbeitet. */
+    private fun showBusy(msg: String) {
+        scrollHint.text = msg
+        spinner.visibility = View.VISIBLE
+        hintRow.visibility = View.VISIBLE
+    }
+
+    private fun hideHint() {
+        spinner.visibility = View.GONE
+        hintRow.visibility = View.GONE
+    }
+
+    private fun isWordChar(c: Char) = c.isLetterOrDigit() || c == '\'' || c == '’'
+
+    /** Das Wort an der Textposition [offset]; ein Tipp direkt hinter ein Wort zählt zu ihm. */
+    private fun wordRange(text: String, offset: Int): IntRange? {
+        var i = offset.coerceIn(0, text.length)
+        if (i >= text.length || !isWordChar(text[i])) i--
+        if (i < 0 || !isWordChar(text[i])) return null
+        var start = i
+        while (start > 0 && isWordChar(text[start - 1])) start--
+        var end = i
+        while (end < text.length - 1 && isWordChar(text[end + 1])) end++
+        return start..end
+    }
+
+    /** Der Text ab dem Anfang des Satzes, in dem [start] liegt, bis zum Ende. */
+    private fun fromSentenceStart(text: String, start: Int): String {
+        var s = start
+        while (s > 0 && text[s - 1] !in ".!?\n") s--
+        return text.substring(s).trim()
+    }
+
+    /** Erster Tipp markiert ein Wort gelb, ein zweiter Tipp auf das markierte Wort ersetzt es. */
+    private fun onWordTap(x: Float, y: Float) {
+        val text = suggestion ?: return // nur im Vorschlag, nicht bei Statusmeldungen
+        if (rewordBusy) return
+        val range = wordRange(text, suggestionView.getOffsetForPosition(x, y))
+        when {
+            range == null -> selectWord(text, null)
+            range != selection -> selectWord(text, range)
+            else -> renewWord(text, range)
+        }
+    }
+
+    private fun selectWord(text: String, range: IntRange?) {
+        selection = range
+        showSuggestionText(text, range?.first ?: -1, (range?.last ?: -2) + 1)
+        resetHint()
+        if (range != null && Api.autoSpeak(this)) speak(text.substring(range.first, range.last + 1))
+    }
+
+    private fun renewWord(text: String, range: IntRange) {
+        val before = text.substring(0, range.first)
+        val word = text.substring(range.first, range.last + 1)
+        val after = text.substring(range.last + 1)
+
+        // Andere Stelle: Kandidaten und abgelehnte Wörter beginnen von vorn.
+        if (before != candidateKey) {
+            resetRewordState()
+            candidateKey = before
+        }
+        if (rejected.none { it.equals(word, ignoreCase = true) }) rejected.add(word)
+
+        // Noch Kandidaten übrig: sofort das nächste einsetzen, ohne neue Anfrage.
+        if (candidateIndex < candidates.size) {
+            replaceWord(before, candidates[candidateIndex++], after)
+            return
+        }
+
+        val source = sourceText ?: return
+        val id = requestId
+        val rejectedNow = rejected.toList()
+        rewordBusy = true
+        showBusy("Suche ein anderes Wort …")
+        executor.execute {
+            val result = try {
+                Api.reword(this, source, before, word, after, rejectedNow)
+            } catch (e: Exception) {
+                null
+            }
+            main.post {
+                if (id != requestId || suggestion != text) return@post // Vorschlag wurde inzwischen ersetzt
+                rewordBusy = false
+                when {
+                    result == null -> showHint("Keine Verbindung zum Server.")
+                    result.isEmpty() -> showHint("Kein anderes Wort gefunden.")
+                    else -> {
+                        candidates = result
+                        candidateIndex = 0
+                        replaceWord(before, candidates[candidateIndex++], after)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun replaceWord(before: String, newWord: String, after: String) {
+        val updated = before + newWord + after
+        suggestion = updated
+        selection = before.length until before.length + newWord.length
+        showSuggestionText(updated, before.length, before.length + newWord.length)
+        resetHint()
+        suggestionView.post { // markiertes Wort in den sichtbaren Bereich holen
+            val layout = suggestionView.layout ?: return@post
+            val line = layout.getLineForOffset(before.length)
+            val maxY = (layout.height + suggestionView.totalPaddingTop + suggestionView.totalPaddingBottom -
+                suggestionView.height).coerceAtLeast(0)
+            suggestionView.scrollTo(0, layout.getLineTop((line - 1).coerceAtLeast(0)).coerceAtMost(maxY))
+        }
+        // Ab dem Satz mit dem neuen Wort bis zum Ende weiterlesen
+        if (Api.autoSpeak(this)) speak(fromSentenceStart(updated, before.length))
     }
 
     private fun refreshApplyButton() {
@@ -446,6 +674,51 @@ class KeyboardService : InputMethodService() {
 
     companion object {
         private const val MAX_CHARS = 4000
+        private const val HINT_SELECT = "Falsches Wort? Antippen zum Markieren."
+        private const val HINT_RENEW = "Gelbes Wort nochmal antippen: anderes Wort."
         private const val KEY_HEIGHT_DP = 58
+    }
+}
+
+
+/** Kleiner, selbst gezeichneter Drehkreis. Bewusst ohne System-Fortschrittsanzeige (Design-Abhängigkeit). */
+private class Spinner(context: Context, accent: Int) : View(context) {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        color = accent
+    }
+    private val box = RectF()
+    private var angle = 0f
+    private val animator = ValueAnimator.ofFloat(0f, 360f).apply {
+        duration = 900
+        repeatCount = ValueAnimator.INFINITE
+        interpolator = LinearInterpolator()
+        addUpdateListener {
+            angle = it.animatedValue as Float
+            invalidate()
+        }
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        if (visibility == VISIBLE) animator.start()
+    }
+
+    override fun onDetachedFromWindow() {
+        animator.cancel()
+        super.onDetachedFromWindow()
+    }
+
+    override fun onVisibilityChanged(changedView: View, visibility: Int) {
+        super.onVisibilityChanged(changedView, visibility)
+        if (visibility == VISIBLE && isAttachedToWindow) animator.start() else animator.cancel()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val stroke = width / 7f
+        paint.strokeWidth = stroke
+        box.set(stroke, stroke, width - stroke, height - stroke)
+        canvas.drawArc(box, angle, 270f, false, paint)
     }
 }

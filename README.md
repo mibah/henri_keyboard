@@ -10,7 +10,9 @@ auf die Messenger selbst.
 1. Nutzer tippt (oder diktiert) mit der Henri Tastatur.
 2. **Verbessern**: Der Text geht an den Proxy, das Modell korrigiert Rechtschreibung und Zeichensetzung.
 3. Der Vorschlag erscheint groß und wird **vorgelesen** (Android-TTS).
-4. **Übernehmen** ersetzt den Feldtext. Gesendet wird nie automatisch.
+4. Falsches Wort im Vorschlag? Antippen markiert es gelb, nochmal antippen holt ein anderes
+   (Kandidaten vom Server, `/reword`). Danach wird ab diesem Satz weitergelesen.
+5. **Übernehmen** ersetzt den Feldtext. Gesendet wird nie automatisch.
 
 In Passwortfeldern sind die KI-Funktionen ausgeblendet.
 
