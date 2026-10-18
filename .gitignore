@@ -1,0 +1,15 @@
+# Android / Gradle
+keyboard/.gradle/
+keyboard/.kotlin/
+keyboard/build/
+keyboard/app/build/
+keyboard/local.properties
+*.apk
+
+# Python
+__pycache__/
+*.pyc
+
+# macOS / Editor
+.DS_Store
+.idea/
