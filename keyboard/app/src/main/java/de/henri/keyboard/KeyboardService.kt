@@ -68,6 +68,15 @@ class KeyboardService : InputMethodService() {
     private var candidateKey: String? = null // Text vor dem Wort; erkennt dieselbe Stelle wieder
     private val rejected = mutableListOf<String>()
     private var rewordBusy = false
+
+    // Markierte Stelle aus mehreren Wörtern (grün): eigener Zustand, unabhängig vom Einzelwort (gelb)
+    private var passage: IntRange? = null
+    private var passageOptions: List<String> = emptyList()
+    private var passageIndex = 0
+    private val passageRejected = mutableListOf<String>()
+    private var passageBusy = false
+    private var multiSelecting = false // Finger liegt nach langem Druck und zieht gerade
+    private var multiAnchor: IntRange? = null // Wort, an dem das Ziehen begonnen hat
     private var selection: IntRange? = null // markiertes (gelbes) Wort im Vorschlag
     private val letterKeys = mutableListOf<Pair<TextView, String>>()
 
@@ -138,11 +147,21 @@ class KeyboardService : InputMethodService() {
                     onWordTap(e.x, e.y)
                     return true
                 }
+
+                override fun onLongPress(e: MotionEvent) {
+                    startMultiSelect(e)
+                }
             })
-            // false: das Feld behandelt Wischen weiterhin selbst (Scrollen)
+            // Normal behandelt das Feld Wischen selbst (Scrollen). Nur nach einem langen Druck
+            // (Mehrfach-Auswahl) übernehmen wir die Berührung, bis der Finger losgelassen wird.
             setOnTouchListener { _, ev ->
                 gestures.onTouchEvent(ev)
-                false
+                if (multiSelecting) {
+                    dragSelect(ev)
+                    true
+                } else {
+                    false
+                }
             }
         }
         root.addView(suggestionView, LinearLayout.LayoutParams(-1, -2))
@@ -346,13 +365,14 @@ class KeyboardService : InputMethodService() {
         rejected.clear()
         rewordBusy = false
         selection = null
+        resetPassageState()
     }
 
     /** Zeigt den Vorschlag; ein geändertes Wort ([hlStart] bis [hlEnd]) wird gelb markiert. */
-    private fun showSuggestionText(text: String, hlStart: Int = -1, hlEnd: Int = -1) {
+    private fun showSuggestionText(text: String, hlStart: Int = -1, hlEnd: Int = -1, color: Int = Color.rgb(255, 193, 7)) {
         val styled = SpannableString(text)
         if (hlStart in 0 until hlEnd) {
-            styled.setSpan(BackgroundColorSpan(Color.rgb(255, 193, 7)), hlStart, hlEnd, 0)
+            styled.setSpan(BackgroundColorSpan(color), hlStart, hlEnd, 0)
             styled.setSpan(ForegroundColorSpan(Color.BLACK), hlStart, hlEnd, 0)
         }
         suggestionView.text = styled
@@ -407,7 +427,17 @@ class KeyboardService : InputMethodService() {
     /** Erster Tipp markiert ein Wort gelb, ein zweiter Tipp auf das markierte Wort ersetzt es. */
     private fun onWordTap(x: Float, y: Float) {
         val text = suggestion ?: return // nur im Vorschlag, nicht bei Statusmeldungen
-        if (rewordBusy) return
+        if (rewordBusy || passageBusy) return
+        // Grüne Stelle (mehrere Wörter): eigener Zweig. Ein Tipp daneben hebt sie auf, danach gilt
+        // die Einzelwort-Logik unverändert.
+        val green = passage
+        if (green != null) {
+            if (suggestionView.getOffsetForPosition(x, y) in green.first..(green.last + 1)) {
+                renewPassage(text, green)
+                return
+            }
+            resetPassageState()
+        }
         val range = wordRange(text, suggestionView.getOffsetForPosition(x, y))
         when {
             range == null -> selectWord(text, null)
@@ -482,6 +512,144 @@ class KeyboardService : InputMethodService() {
             suggestionView.scrollTo(0, layout.getLineTop((line - 1).coerceAtLeast(0)).coerceAtMost(maxY))
         }
         // Ab dem Satz mit dem neuen Wort bis zum Ende weiterlesen
+        if (Api.autoSpeak(this)) speak(fromSentenceStart(updated, before.length))
+    }
+
+    // ---------- Mehrere Wörter markieren und neu formulieren (grün) ----------
+
+    private fun resetPassageState() {
+        passage = null
+        passageOptions = emptyList()
+        passageIndex = 0
+        passageRejected.clear()
+        passageBusy = false
+        multiSelecting = false
+        multiAnchor = null
+    }
+
+    private fun wordCount(s: String) = s.split(Regex("\\s+")).count { it.isNotBlank() }
+
+    /** Langer Druck auf ein Wort: Farbe blinkt kurz auf und wird grün, danach kann gezogen werden. */
+    private fun startMultiSelect(e: MotionEvent) {
+        val text = suggestion ?: return
+        if (rewordBusy || passageBusy) return
+        val range = wordRange(text, suggestionView.getOffsetForPosition(e.x, e.y)) ?: return
+        resetRewordState() // alte Markierungen und Kandidaten (gelb und grün) gelten nicht mehr
+        suggestionView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        // Das Feld soll seinen eigenen Berührungsvorgang (Scrollen, Drücken) abbrechen.
+        val cancel = MotionEvent.obtain(e)
+        cancel.action = MotionEvent.ACTION_CANCEL
+        suggestionView.onTouchEvent(cancel)
+        cancel.recycle()
+
+        multiSelecting = true
+        multiAnchor = range
+        passage = range
+        showSuggestionText(text, range.first, range.last + 1, Color.WHITE) // Aufblinken
+        showHint(HINT_DRAG)
+        main.postDelayed({
+            val p = passage
+            if (multiSelecting && p != null) showSuggestionText(text, p.first, p.last + 1, GREEN)
+        }, 140)
+    }
+
+    private fun dragSelect(ev: MotionEvent) {
+        val text = suggestion
+        if (text == null) {
+            multiSelecting = false
+            return
+        }
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_MOVE -> {
+                autoScrollWhileDragging(ev.y)
+                val anchor = multiAnchor ?: return
+                val here = wordRange(text, suggestionView.getOffsetForPosition(ev.x, ev.y)) ?: return
+                val range = minOf(anchor.first, here.first)..maxOf(anchor.last, here.last)
+                if (range != passage && wordCount(text.substring(range.first, range.last + 1)) <= MAX_SELECT_WORDS) {
+                    passage = range
+                    showSuggestionText(text, range.first, range.last + 1, GREEN)
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                multiSelecting = false
+                multiAnchor = null
+                val range = passage
+                showHint(HINT_PASSAGE)
+                if (ev.actionMasked == MotionEvent.ACTION_UP && range != null && Api.autoSpeak(this)) {
+                    speak(text.substring(range.first, range.last + 1))
+                }
+            }
+        }
+    }
+
+    /** Am oberen oder unteren Rand des Feldes wandert der Text beim Ziehen mit. */
+    private fun autoScrollWhileDragging(y: Float) {
+        val layout = suggestionView.layout ?: return
+        val maxY = (layout.height + suggestionView.totalPaddingTop + suggestionView.totalPaddingBottom -
+            suggestionView.height).coerceAtLeast(0)
+        val edge = dp(28)
+        val step = dp(10)
+        val target = when {
+            y < edge -> suggestionView.scrollY - step
+            y > suggestionView.height - edge -> suggestionView.scrollY + step
+            else -> return
+        }
+        suggestionView.scrollTo(0, target.coerceIn(0, maxY))
+    }
+
+    /** Tipp auf die grüne Stelle: neue Formulierung; weitere Tipps zeigen die nächste Variante. */
+    private fun renewPassage(text: String, range: IntRange) {
+        val before = text.substring(0, range.first)
+        val current = text.substring(range.first, range.last + 1)
+        val after = text.substring(range.last + 1)
+        if (passageRejected.none { it.equals(current, ignoreCase = true) }) passageRejected.add(current)
+
+        if (passageIndex < passageOptions.size) {
+            replacePassage(before, passageOptions[passageIndex++], after)
+            return
+        }
+
+        val source = sourceText ?: return
+        val id = requestId
+        val rejectedNow = passageRejected.toList()
+        passageBusy = true
+        showBusy("Suche eine andere Formulierung …")
+        executor.execute {
+            val result = try {
+                Api.rephrase(this, source, before, current, after, rejectedNow)
+            } catch (e: Exception) {
+                null
+            }
+            main.post {
+                if (id != requestId || suggestion != text) return@post // Vorschlag wurde inzwischen ersetzt
+                passageBusy = false
+                when {
+                    result == null -> showHint("Keine Verbindung zum Server.")
+                    result.isEmpty() -> showHint("Kein anderer Vorschlag gefunden.")
+                    else -> {
+                        passageOptions = result
+                        passageIndex = 0
+                        replacePassage(before, passageOptions[passageIndex++], after)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun replacePassage(before: String, newText: String, after: String) {
+        val updated = before + newText + after
+        suggestion = updated
+        passage = before.length until before.length + newText.length
+        showSuggestionText(updated, before.length, before.length + newText.length, GREEN)
+        showHint(HINT_PASSAGE)
+        suggestionView.post { // Neue Stelle in den sichtbaren Bereich holen
+            val layout = suggestionView.layout ?: return@post
+            val line = layout.getLineForOffset(before.length)
+            val maxY = (layout.height + suggestionView.totalPaddingTop + suggestionView.totalPaddingBottom -
+                suggestionView.height).coerceAtLeast(0)
+            suggestionView.scrollTo(0, layout.getLineTop((line - 1).coerceAtLeast(0)).coerceAtMost(maxY))
+        }
+        // Ab dem Satz mit der neuen Stelle bis zum Ende weiterlesen
         if (Api.autoSpeak(this)) speak(fromSentenceStart(updated, before.length))
     }
 
@@ -700,6 +868,10 @@ class KeyboardService : InputMethodService() {
         private const val MAX_CHARS = 4000
         private const val HINT_SELECT = "Falsches Wort? Antippen zum Markieren."
         private const val HINT_RENEW = "Gelbes Wort nochmal antippen: anderes Wort."
+        private const val HINT_DRAG = "Ziehen, dann loslassen …"
+        private const val HINT_PASSAGE = "Grüne Stelle nochmal antippen: andere Formulierung."
+        private const val MAX_SELECT_WORDS = 15
+        private val GREEN = Color.rgb(46, 204, 113)
         private const val KEY_HEIGHT_DP = 58
     }
 }

@@ -57,6 +57,25 @@ object Api {
         return List(words.length()) { words.getString(it) }
     }
 
+    /**
+     * Bis zu 3 andere Formulierungen für eine markierte Stelle aus mehreren Wörtern ([passage]),
+     * die [before] und [after] im Satz ersetzen (beste zuerst).
+     */
+    fun rephrase(c: Context, original: String, before: String, passage: String, after: String, rejected: List<String>): List<String> {
+        val body = JSONObject()
+            .put("original", original)
+            .put("before", before)
+            .put("passage", passage)
+            .put("after", after)
+            .put("rejected", JSONArray(rejected))
+            .toString().toByteArray()
+        val conn = open(c, "/rephrase", "POST")
+        conn.doOutput = true
+        conn.outputStream.use { it.write(body) }
+        val options = JSONObject(read(conn)).getJSONArray("options")
+        return List(options.length()) { options.getString(it) }
+    }
+
     fun health(c: Context): String {
         val conn = open(c, "/health", "GET")
         return JSONObject(read(conn)).optString("model", "?")

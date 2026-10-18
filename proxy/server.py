@@ -193,6 +193,109 @@ def reword(original, before, word, after, rejected):
     return words
 
 
+# ---------- Markierte Stelle aus mehreren Wörtern neu formulieren (/rephrase) ----------
+# Eigener Zweig: Prompt, Zuordnung und Filter sind unabhängig von der Einzelwort-Funktion /reword.
+
+PASSAGE_PROMPT_FILE = os.path.join(os.path.dirname(__file__), "prompt_passage.txt")
+with open(PASSAGE_PROMPT_FILE, encoding="utf-8") as f:
+    PASSAGE_PROMPT = f.read().strip()
+
+PASSAGE_SHOTS = [
+    (
+        "wir treffn uns um halb acht bein bahnhof ok", "Wir treffen uns um halb acht ", "bei dem", " Bahnhof. Ok.",
+        "beim\nan dem\nvor dem",
+    ),
+    (
+        "ich hab dir gestern ne nachricht geschikt aber du hast nich geantwortet",
+        "Ich habe dir gestern eine Nachricht geschickt, ", "aber du hast nicht", " geantwortet.",
+        "du hast aber nicht\nund trotzdem hast du nicht\ndoch du hast nicht",
+    ),
+]
+
+
+def typed_span(original, before, passage):
+    """Welches getippte Stück der Originalnachricht gehört zur markierten Stelle (mehrere Wörter)? ("" wenn unklar)
+
+    Richtet beide Wortlisten nach Ähnlichkeit aus (Needleman-Wunsch), damit ein Wort wie
+    "Wie" dem getippten "wiel" zugeordnet wird, auch wenn sonst im Satz viel anders ist.
+    Bei mehreren Wörtern wird der Bereich vom ersten bis zum letzten zugeordneten Wort geliefert.
+    """
+    orig_raw = WORD_RE.findall(original)
+    orig = [w.lower() for w in orig_raw]
+    corr = [w.lower() for w in WORD_RE.findall(before + passage)]  # die letzten Wörter sind die markierten
+    marked = len(WORD_RE.findall(passage))
+    if not orig or not corr or marked == 0:
+        return ""
+    m, n, gap = len(orig), len(corr), -0.4
+    ratio = lambda x, y: difflib.SequenceMatcher(None, x, y).ratio()
+    sim = lambda x, y: 2 * ratio(x, y) - 1  # -1 .. +1
+    score = [[0.0] * (n + 1) for _ in range(m + 1)]
+    for i in range(1, m + 1):
+        score[i][0] = i * gap
+    for j in range(1, n + 1):
+        score[0][j] = j * gap
+    for i in range(1, m + 1):
+        for j in range(1, n + 1):
+            score[i][j] = max(
+                score[i - 1][j - 1] + sim(orig[i - 1], corr[j - 1]),
+                score[i - 1][j] + gap,
+                score[i][j - 1] + gap,
+            )
+    pairs = {}  # Index im korrigierten Text -> Index im getippten Text
+    i, j = m, n
+    while i > 0 and j > 0:
+        if score[i][j] == score[i - 1][j - 1] + sim(orig[i - 1], corr[j - 1]):
+            if ratio(orig[i - 1], corr[j - 1]) >= 0.3:
+                pairs[j - 1] = i - 1
+            i, j = i - 1, j - 1
+        elif score[i - 1][j] + gap == score[i][j]:
+            i -= 1
+        else:
+            j -= 1
+    hits = [pairs[j] for j in range(n - marked, n) if j in pairs]
+    if not hits:
+        return ""
+    return " ".join(orig_raw[min(hits):max(hits) + 1])
+
+
+def passage_message(original, before, passage, after, rejected):
+    rejected_text = "; ".join(rejected) if rejected else "keine"
+    typed = typed_span(original, before, passage)
+    return (
+        f"Originalnachricht: <original>{original}</original>\n"
+        f"Korrigierte Fassung: <korrigiert>{before}<<{passage}>>{after}</korrigiert>\n"
+        f"Getippt wurde an dieser Stelle: {typed or 'unklar'}\n"
+        f"Abgelehnte Vorschläge: {rejected_text}"
+    )
+
+
+def rephrase(original, before, passage, after, rejected):
+    """Gibt bis zu 3 andere Formulierungen für die markierte Stelle zurück (beste zuerst)."""
+    messages = [{"role": "system", "content": PASSAGE_PROMPT}]
+    for o, b, p, a, answer in PASSAGE_SHOTS:
+        messages.append({"role": "user", "content": passage_message(o, b, p, a, [])})
+        messages.append({"role": "assistant", "content": answer})
+    messages.append({"role": "user", "content": no_think(passage_message(original, before, passage, after, rejected), REWORD_MODEL)})
+    banned = {r.lower() for r in rejected} | {passage.lower()}
+    at_sentence_start = not before.strip() or before.rstrip()[-1] in ".!?"
+    marked = len(passage.split())
+    max_words = marked * 2 + 4
+    max_chars = len(passage) * 2 + 60
+    options = []
+    for line in chat(messages, 0, REWORD_MODEL).splitlines():
+        cand = re.sub(r"^\s*(\d+[.)]|[-*•])\s*", "", line).strip(" \"'„“”‚‘’.,;:!?<>()[]")
+        if (not cand or len(cand) > max_chars or len(cand.split()) > max_words or cand.lower() in banned
+                or not re.fullmatch(r"[\w'’ ,-]+", cand)):
+            continue
+        if at_sentence_start and not cand[:1].isupper():
+            cand = cand[:1].upper() + cand[1:]
+        banned.add(cand.lower())
+        options.append(cand)
+        if len(options) == 3:
+            break
+    return options
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code, obj):
         data = json.dumps(obj, ensure_ascii=False).encode()
@@ -215,7 +318,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, {"error": "not found"})
 
     def do_POST(self):
-        if self.path not in ("/correct", "/reword"):
+        if self.path not in ("/correct", "/reword", "/rephrase"):
             return self._send(404, {"error": "not found"})
         if APP_TOKEN and self.headers.get("Authorization") != "Bearer " + APP_TOKEN:
             return self._send(401, {"error": "unauthorized"})
@@ -226,6 +329,8 @@ class Handler(BaseHTTPRequestHandler):
             data = json.loads(self.rfile.read(length))
             if self.path == "/reword":
                 return self._reword(data)
+            if self.path == "/rephrase":
+                return self._rephrase(data)
             text = data["text"]
             if not isinstance(text, str) or not text.strip():
                 return self._send(400, {"error": "text missing"})
@@ -251,6 +356,17 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(413, {"error": "text too long"})
         STATS["last"] = time.time()
         self._send(200, {"words": reword(original, before, word, after, rejected)})
+
+    def _rephrase(self, data):
+        original, before, passage, after = (data[k] for k in ("original", "before", "passage", "after"))
+        rejected = data.get("rejected", [])
+        fields = [original, before, passage, after] + list(rejected)
+        if not all(isinstance(x, str) for x in fields) or not passage.strip():
+            return self._send(400, {"error": "bad request"})
+        if sum(len(x) for x in fields) > 2 * MAX_CHARS or len(rejected) > 20:
+            return self._send(413, {"error": "text too long"})
+        STATS["last"] = time.time()
+        self._send(200, {"options": rephrase(original, before, passage, after, rejected)})
 
     def log_message(self, fmt, *args):
         pass  # kein Access-Log mit Inhalten

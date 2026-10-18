@@ -12,6 +12,9 @@ auf die Messenger selbst.
 3. Der Vorschlag erscheint groß und wird **vorgelesen** (Android-TTS).
 4. Falsches Wort im Vorschlag? Antippen markiert es gelb, nochmal antippen holt ein anderes
    (Kandidaten vom Server, `/reword`). Danach wird ab diesem Satz weitergelesen.
+   Mehrere Wörter: lange drücken (Markierung blinkt, wird grün) und über die Wörter ziehen;
+   Antippen der grünen Stelle holt andere Formulierungen (`/rephrase`, eigener Prompt
+   `proxy/prompt_passage.txt`).
 5. **Übernehmen** ersetzt den Feldtext. Gesendet wird nie automatisch.
 
 In Passwortfeldern sind die KI-Funktionen ausgeblendet.
