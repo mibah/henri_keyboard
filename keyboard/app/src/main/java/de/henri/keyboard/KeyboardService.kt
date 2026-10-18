@@ -78,8 +78,22 @@ class KeyboardService : InputMethodService() {
 
     override fun onCreate() {
         super.onCreate()
+        initTts()
+    }
+
+    /**
+     * Verbindet mit der Sprachengine. Wird auch gebraucht, wenn Android die Engine zwischendurch beendet
+     * ("not bound to TTS engine"): Dann muss neu verbunden werden, sonst bleibt die Tastatur stumm.
+     */
+    private fun initTts(onReady: (() -> Unit)? = null) {
+        ttsReady = false
+        tts?.shutdown()
         tts = TextToSpeech(this) { status ->
-            if (status == TextToSpeech.SUCCESS) {
+            main.post {
+                if (status != TextToSpeech.SUCCESS) {
+                    ttsReady = false
+                    return@post
+                }
                 tts?.language = Locale.GERMAN
                 tts?.setSpeechRate(0.95f)
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
@@ -91,6 +105,7 @@ class KeyboardService : InputMethodService() {
                     override fun onError(utteranceId: String?) = utteranceEnded(utteranceId)
                 })
                 ttsReady = true
+                onReady?.invoke()
             }
         }
     }
@@ -265,11 +280,20 @@ class KeyboardService : InputMethodService() {
         if (text.isNullOrBlank()) speak("Es ist noch nichts geschrieben.") else speak(text)
     }
 
-    private fun speak(text: String) {
-        if (!ttsReady) return
+    private fun speak(text: String, retry: Boolean = true) {
+        if (!ttsReady) {
+            if (retry) initTts { speak(text, retry = false) }
+            return
+        }
         currentUtterance = "henri-${++utteranceCounter}"
         setSpeaking(true)
-        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, currentUtterance)
+        val result = tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, currentUtterance)
+        if (result != TextToSpeech.SUCCESS) {
+            // Engine nicht mehr verbunden: einmal neu verbinden und noch einmal versuchen.
+            setSpeaking(false)
+            ttsReady = false
+            if (retry) initTts { speak(text, retry = false) }
+        }
     }
 
     private fun stopSpeaking() {
