@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import android.speech.tts.TextToSpeech
 import android.text.InputType
+import android.text.method.ScrollingMovementMethod
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
@@ -33,6 +34,7 @@ class KeyboardService : InputMethodService() {
     private var ttsReady = false
 
     private lateinit var suggestionView: TextView
+    private lateinit var scrollHint: TextView
     private lateinit var aiBar: LinearLayout
     private lateinit var applyButton: TextView
     private lateinit var keysContainer: LinearLayout
@@ -77,10 +79,23 @@ class KeyboardService : InputMethodService() {
             setTextColor(Color.WHITE)
             setBackgroundColor(Color.rgb(30, 30, 36))
             setPadding(dp(12), dp(8), dp(12), dp(8))
-            maxLines = 5
+            maxLines = 6
+            // Lange Vorschläge: im Feld wischen. Kein Scrollbalken: der per Code eingeschaltete
+            // Balken hat die Tastatur beim Zeichnen zum Absturz gebracht.
+            movementMethod = ScrollingMovementMethod.getInstance()
             visibility = View.GONE
         }
         root.addView(suggestionView, LinearLayout.LayoutParams(-1, -2))
+
+        scrollHint = TextView(this).apply {
+            text = "↕ Mehr Text: im Feld nach oben oder unten wischen"
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            setTextColor(Color.rgb(255, 193, 7))
+            setBackgroundColor(Color.rgb(30, 30, 36))
+            setPadding(dp(12), 0, dp(12), dp(6))
+            visibility = View.GONE
+        }
+        root.addView(scrollHint, LinearLayout.LayoutParams(-1, -2))
 
         aiBar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         aiBar.addView(bigButton("Verbessern", Color.rgb(30, 120, 60)) { improve() }, weighted(1.2f))
@@ -156,7 +171,12 @@ class KeyboardService : InputMethodService() {
                         sourceText = text
                         suggestion = result
                         suggestionView.text = result
+                        suggestionView.scrollTo(0, 0)
                         suggestionView.visibility = View.VISIBLE
+                        suggestionView.post {
+                            scrollHint.visibility =
+                                if (suggestionView.canScrollVertically(1)) View.VISIBLE else View.GONE
+                        }
                         refreshApplyButton()
                         if (Api.autoSpeak(this)) speak(result)
                     }
@@ -197,6 +217,7 @@ class KeyboardService : InputMethodService() {
         sourceText = null
         suggestionView.text = msg
         suggestionView.visibility = View.VISIBLE
+        scrollHint.visibility = View.GONE
         refreshApplyButton()
     }
 
@@ -207,6 +228,7 @@ class KeyboardService : InputMethodService() {
         if (::suggestionView.isInitialized) {
             suggestionView.text = ""
             suggestionView.visibility = View.GONE
+            scrollHint.visibility = View.GONE
             refreshApplyButton()
         }
     }
