@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Henri Steuerung</title>
+<style>
+  :root {
+    --bg: #0e1116;
+    --card: #171c24;
+    --line: #2a3140;
+    --text: #f3f6fb;
+    --muted: #a9b4c6;
+    --green: #2ecc71;
+    --red: #ff5d5d;
+    --amber: #ffb938;
+    --blue: #4da3ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: radial-gradient(1200px 600px at 50% -10%, #1b2433 0%, var(--bg) 60%);
+    color: var(--text);
+    font: 20px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    justify-content: center;
+    padding: 32px 16px;
+  }
+  main { width: 100%; max-width: 640px; }
+  h1 { font-size: 28px; margin: 0 0 4px; letter-spacing: .2px; }
+  .sub { color: var(--muted); font-size: 18px; margin: 0 0 24px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    padding: 24px;
+    margin-bottom: 18px;
+  }
+  .state { display: flex; align-items: center; gap: 18px; }
+  .dot {
+    width: 44px; height: 44px; border-radius: 50%;
+    background: var(--red);
+    box-shadow: 0 0 0 6px rgba(255, 93, 93, .15);
+    flex: none;
+    transition: background .3s, box-shadow .3s;
+  }
+  .dot.bereit { background: var(--green); box-shadow: 0 0 0 6px rgba(46, 204, 113, .18), 0 0 28px rgba(46, 204, 113, .55); }
+  .dot.startet { background: var(--amber); box-shadow: 0 0 0 6px rgba(255, 185, 56, .18); animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 14px rgba(255, 185, 56, .08); } }
+  @media (prefers-reduced-motion: reduce) { .dot.startet { animation: none; } }
+  .state-text { font-size: 34px; font-weight: 700; line-height: 1.1; }
+  .step { color: var(--muted); font-size: 18px; margin-top: 4px; min-height: 26px; }
+  .bar { height: 12px; border-radius: 8px; background: #222a37; margin-top: 16px; overflow: hidden; display: none; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--blue); transition: width .4s; }
+  button.main {
+    width: 100%;
+    margin-top: 22px;
+    padding: 20px;
+    font: inherit; font-size: 26px; font-weight: 700;
+    color: #07130c;
+    background: var(--green);
+    border: 0; border-radius: 16px;
+    cursor: pointer;
+    transition: transform .08s, filter .2s;
+  }
+  button.main:hover { filter: brightness(1.08); }
+  button.main:active { transform: scale(.99); }
+  button.main.stop { background: var(--red); color: #1a0505; }
+  button.main:disabled { background: #39414f; color: #aeb7c6; cursor: default; filter: none; }
+  button:focus-visible, a:focus-visible { outline: 4px solid var(--blue); outline-offset: 3px; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { display: flex; align-items: center; gap: 14px; padding: 11px 0; border-top: 1px solid var(--line); }
+  li:first-child { border-top: 0; }
+  .mark { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; flex: none; background: #2a3140; color: var(--muted); }
+  li.ok .mark { background: var(--green); color: #07130c; }
+  li.bad .mark { background: transparent; border: 3px solid var(--red); color: var(--red); }
+  .label small { display: block; color: var(--muted); font-size: 16px; }
+  .addr-title { color: var(--muted); font-size: 17px; margin: 0 0 8px; }
+  .addr { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .addr code { font: 700 26px ui-monospace, Menlo, Consolas, monospace; word-break: break-all; }
+  button.small {
+    font: inherit; font-size: 18px; font-weight: 600;
+    background: #26303f; color: var(--text);
+    border: 1px solid var(--line); border-radius: 12px; padding: 10px 16px; cursor: pointer;
+  }
+  .hint { color: var(--muted); font-size: 17px; margin: 12px 0 0; }
+  .error { border-color: var(--red); background: #2a1517; color: #ffd9d9; display: none; }
+  .note { border-color: var(--amber); background: #2a2415; color: #ffe9b8; display: none; font-size: 18px; }
+  .foot { text-align: center; margin-top: 8px; }
+  .foot button { background: none; border: 0; color: var(--muted); font: inherit; font-size: 17px; text-decoration: underline; cursor: pointer; padding: 10px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Henri Tastatur</h1>
+  <p class="sub">Steuerung für den Korrektur-Server</p>
+
+  <section class="card" aria-live="polite">
+    <div class="state">
+      <div class="dot" id="dot"></div>
+      <div>
+        <div class="state-text" id="stateText">Aus</div>
+        <div class="step" id="step"></div>
+      </div>
+    </div>
+    <div class="bar" id="bar"><i id="barFill"></i></div>
+    <button class="main" id="mainBtn" type="button">Starten</button>
+  </section>
+
+  <section class="card error" id="error" role="alert"></section>
+  <section class="card note" id="note"></section>
+
+  <section class="card">
+    <ul>
+      <li id="liOllama"><span class="mark"></span><span class="label">Sprachprogramm (Ollama)<small id="tOllama"></small></span></li>
+      <li id="liModel"><span class="mark"></span><span class="label">Sprachmodell<small id="tModel"></small></span></li>
+      <li id="liProxy"><span class="mark"></span><span class="label">Server für die Tastatur<small id="tProxy"></small></span></li>
+      <li id="liUse"><span class="mark"></span><span class="label">Handy zuletzt benutzt<small id="tUse"></small></span></li>
+    </ul>
+  </section>
+
+  <section class="card" id="addrCard" style="display:none">
+    <p class="addr-title">Diese Adresse in der Henri-Tastatur-App auf dem Handy eintragen:</p>
+    <div class="addr">
+      <code id="addr"></code>
+      <button class="small" id="copyBtn" type="button">Kopieren</button>
+    </div>
+    <p class="hint">Handy und Computer müssen im selben WLAN sein.</p>
+  </section>
+
+  <div class="foot"><button id="quitBtn" type="button">Programm ganz beenden</button></div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const HEAD = { "X-Henri": "1" };
+let last = null;
+
+function ago(sec) {
+  if (sec === null || sec === undefined) return "noch nicht";
+  if (sec < 10) return "gerade eben";
+  if (sec < 60) return "vor " + sec + " Sekunden";
+  if (sec < 3600) return "vor " + Math.round(sec / 60) + " Min.";
+  return "vor " + Math.round(sec / 3600) + " Std.";
+}
+
+function row(id, ok, text, neutral) {
+  const li = $("li" + id);
+  li.className = neutral ? "" : ok ? "ok" : "bad";
+  li.querySelector(".mark").textContent = neutral ? "–" : ok ? "✓" : "✕";
+  $("t" + id).textContent = text;
+}
+
+function render(s) {
+  last = s;
+  const names = { aus: "Aus", startet: "Startet …", bereit: "Bereit", fehler: "Problem" };
+  $("stateText").textContent = names[s.phase] || s.phase;
+  $("dot").className = "dot " + (s.phase === "bereit" ? "bereit" : s.phase === "startet" ? "startet" : "");
+  $("step").textContent = s.phase === "bereit" ? "Die Tastatur auf dem Handy kann jetzt Texte verbessern." : s.step;
+
+  const bar = $("bar");
+  if (s.pull !== null && s.pull !== undefined) {
+    bar.style.display = "block";
+    $("barFill").style.width = s.pull + "%";
+    $("step").textContent = s.step + " " + s.pull + " %";
+  } else {
+    bar.style.display = "none";
+  }
+
+  const btn = $("mainBtn");
+  btn.classList.toggle("stop", s.phase === "bereit");
+  if (s.phase === "startet") {
+    btn.textContent = "Bitte warten …"; btn.disabled = true;
+  } else if (s.phase === "bereit") {
+    btn.textContent = "Beenden"; btn.disabled = s.external;
+  } else {
+    btn.textContent = s.phase === "fehler" ? "Nochmal versuchen" : "Starten"; btn.disabled = false;
+  }
+
+  const err = $("error");
+  err.style.display = s.phase === "fehler" && s.error ? "block" : "none";
+  err.textContent = s.error;
+
+  const note = $("note");
+  note.style.display = s.external && s.phase === "bereit" ? "block" : "none";
+  note.textContent = "Der Server wurde von Hand gestartet. Zum Beenden das Fenster schließen, in dem er läuft, oder dort Strg+C drücken.";
+
+  row("Ollama", s.ollama, s.ollama ? "läuft" : "läuft nicht");
+  row("Model", s.model, s.model ? s.modelName + " ist geladen" : s.modelName + " fehlt noch");
+  row("Proxy", s.proxy, s.proxy ? "läuft" : "läuft nicht");
+  if (s.proxy) row("Use", s.lastUse !== null, ago(s.lastUse) + (s.corrections ? " (" + s.corrections + " Korrekturen)" : ""), s.lastUse === null);
+  else row("Use", false, "Server ist aus", true);
+
+  const showAddr = s.url && s.phase === "bereit";
+  $("addrCard").style.display = showAddr ? "block" : "none";
+  if (showAddr) $("addr").textContent = s.url;
+}
+
+async function poll() {
+  try {
+    const r = await fetch("/api/status", { cache: "no-store" });
+    render(await r.json());
+  } catch (e) {
+    $("stateText").textContent = "Keine Verbindung";
+    $("step").textContent = "Das Steuerungsprogramm läuft nicht mehr. Bitte neu starten.";
+  }
+}
+
+async function post(path) {
+  try { await fetch(path, { method: "POST", headers: HEAD }); } catch (e) {}
+  poll();
+}
+
+$("mainBtn").addEventListener("click", () => {
+  if (!last) return;
+  post(last.phase === "bereit" ? "/api/stop" : "/api/start");
+});
+
+$("copyBtn").addEventListener("click", async () => {
+  const text = $("addr").textContent;
+  try { await navigator.clipboard.writeText(text); $("copyBtn").textContent = "Kopiert ✓"; }
+  catch (e) { $("copyBtn").textContent = "Bitte von Hand markieren"; }
+  setTimeout(() => { $("copyBtn").textContent = "Kopieren"; }, 2000);
+});
+
+$("quitBtn").addEventListener("click", async () => {
+  if (!confirm("Alles beenden und das Programm schließen?")) return;
+  await post("/api/quit");
+  document.body.innerHTML = "<main><h1>Beendet</h1><p class='sub'>Du kannst dieses Fenster schließen.</p></main>";
+});
+
+poll();
+setInterval(poll, 1500);
+</script>
+</body>
+</html>

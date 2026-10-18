@@ -32,6 +32,9 @@ with open(PROMPT_FILE, encoding="utf-8") as f:
 
 _hits = defaultdict(deque)
 
+# Nur Zähler und Zeitpunkt, keine Inhalte. Für die Statusanzeige der Steuerungsseite.
+STATS = {"last": None, "count": 0}
+
 
 def rate_limited(ip):
     now = time.time()
@@ -94,7 +97,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/health":
-            self._send(200, {"ok": True, "model": MODEL})
+            last = STATS["last"]
+            self._send(200, {
+                "ok": True,
+                "model": MODEL,
+                "corrections": STATS["count"],
+                "last_correction_ago": None if last is None else int(time.time() - last),
+            })
         else:
             self._send(404, {"error": "not found"})
 
@@ -112,7 +121,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(400, {"error": "text missing"})
             if len(text) > MAX_CHARS:
                 return self._send(413, {"error": "text too long"})
-            self._send(200, {"text": correct(text)})
+            result = correct(text)
+            STATS["last"] = time.time()
+            STATS["count"] += 1
+            self._send(200, {"text": result})
         except (ValueError, KeyError):
             self._send(400, {"error": "bad request"})
         except Exception:
@@ -123,6 +135,10 @@ class Handler(BaseHTTPRequestHandler):
         pass  # kein Access-Log mit Inhalten
 
 
+def make_server(port=PORT):
+    return ThreadingHTTPServer(("0.0.0.0", port), Handler)
+
+
 if __name__ == "__main__":
     print(f"Proxy auf :{PORT} -> {BASE_URL} ({MODEL})")
-    ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+    make_server().serve_forever()

@@ -23,7 +23,12 @@ In Passwortfeldern sind die KI-Funktionen ausgeblendet.
 
 Der API-Key und der Prompt liegen nur im Proxy, nie auf dem Handy.
 
-## Proxy starten
+## Schnellstart mit Steuerungsseite
+
+Doppelklick auf `Start-Henri.command` (Mac) oder `Start-Henri.bat` (Windows) öffnet eine Seite
+mit Start/Beenden-Knopf und Statusanzeige. Details in [QUICKSTART.md](QUICKSTART.md).
+
+## Proxy von Hand starten
 
 ```sh
 cd proxy
