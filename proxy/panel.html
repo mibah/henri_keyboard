@@ -89,6 +89,22 @@
   .note { border-color: var(--amber); background: #2a2415; color: #ffe9b8; display: none; font-size: 18px; }
   .foot { text-align: center; margin-top: 8px; }
   .foot button { background: none; border: 0; color: var(--muted); font: inherit; font-size: 17px; text-decoration: underline; cursor: pointer; padding: 10px; }
+  .toggle { all: unset; box-sizing: border-box; width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 12px; cursor: pointer; }
+  .toggle b { display: block; font-size: 20px; }
+  .toggle small { display: block; color: var(--muted); font-size: 16px; }
+  .toggle:focus-visible { outline: 4px solid var(--blue); outline-offset: 6px; border-radius: 8px; }
+  #provBody label { display: block; margin: 18px 0 6px; color: var(--muted); font-size: 17px; }
+  #provBody select, #provBody input[type=text], #provBody input[type=password] {
+    width: 100%; font: inherit; font-size: 19px; color: var(--text); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px;
+  }
+  #provBody select:focus-visible, #provBody input:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+  #provBody a { color: var(--blue); font-size: 17px; display: inline-block; margin-top: 8px; }
+  .btnrow { display: flex; gap: 12px; margin-top: 20px; flex-wrap: wrap; }
+  .btnrow button { flex: 1 1 180px; font: inherit; font-size: 19px; font-weight: 700; padding: 14px; border-radius: 14px; border: 1px solid var(--line); background: #26303f; color: var(--text); cursor: pointer; }
+  .btnrow button.primary { background: var(--green); color: #07130c; border-color: var(--green); }
+  .btnrow button:disabled { opacity: .5; cursor: default; }
+  .result.ok { color: var(--green); } .result.bad { color: var(--red); }
 </style>
 </head>
 <body>
@@ -118,6 +134,7 @@
       <li id="liProxy"><span class="mark"></span><span class="label">Server für die Tastatur<small id="tProxy"></small></span></li>
       <li id="liUse"><span class="mark"></span><span class="label">Handy zuletzt benutzt<small id="tUse"></small></span></li>
     </ul>
+    <p class="hint" id="lastError" hidden></p>
   </section>
 
   <section class="card" id="addrCard" style="display:none">
@@ -127,6 +144,37 @@
       <button class="small" id="copyBtn" type="button">Kopieren</button>
     </div>
     <p class="hint">Handy und Computer müssen im selben WLAN sein.</p>
+  </section>
+
+  <section class="card" id="provCard">
+    <button class="toggle" id="provToggle" type="button" aria-expanded="false" aria-controls="provBody">
+      <span><b>Anbieter für das Sprachmodell</b><small id="provSummary">Lokal (Ollama)</small></span>
+      <span id="provArrow" aria-hidden="true">▾</span>
+    </button>
+    <div id="provBody" hidden>
+      <label for="provSelect">Das Sprachmodell kommt von</label>
+      <select id="provSelect"></select>
+      <p class="hint" id="provNote"></p>
+      <div id="provUrlRow" hidden>
+        <label for="provUrl">Adresse des Anbieters (bis einschließlich /v1)</label>
+        <input id="provUrl" type="text" autocomplete="off" spellcheck="false" placeholder="https://…/v1">
+      </div>
+      <div id="provKeyRow" hidden>
+        <label for="provKey">Schlüssel (API-Key)</label>
+        <input id="provKey" type="password" autocomplete="off" spellcheck="false">
+        <a id="provKeyLink" href="#" target="_blank" rel="noopener">Schlüssel beim Anbieter erstellen</a>
+      </div>
+      <label for="provModel">Modell</label>
+      <input id="provModel" type="text" autocomplete="off" spellcheck="false">
+      <label for="provReword">Modell für Wortvorschläge (leer = dasselbe)</label>
+      <input id="provReword" type="text" autocomplete="off" spellcheck="false">
+      <p class="hint" id="provCloudWarn" hidden>Bei einem Cloud-Anbieter verlassen die Texte diesen Rechner. Für echte Nachrichten ein bezahltes Konto mit Standort in der EU wählen, kostenlose Stufen nur zum Testen.</p>
+      <div class="btnrow">
+        <button id="provTest" type="button">Testen</button>
+        <button id="provSave" type="button" class="primary">Speichern und übernehmen</button>
+      </div>
+      <p class="hint result" id="provResult" role="status" aria-live="polite"></p>
+    </div>
   </section>
 
   <div class="foot"><button id="quitBtn" type="button">Programm ganz beenden</button></div>
@@ -186,8 +234,16 @@ function render(s) {
   note.style.display = s.external && s.phase === "bereit" ? "block" : "none";
   note.textContent = "Der Server wurde von Hand gestartet. Zum Beenden das Fenster schließen, in dem er läuft, oder dort Strg+C drücken.";
 
-  row("Ollama", s.ollama, s.ollama ? "läuft" : "läuft nicht");
-  row("Model", s.model, s.model ? s.modelName + " ist geladen" : s.modelName + " fehlt noch");
+  if (s.hosted) {
+    row("Ollama", true, "nicht nötig (Cloud-Anbieter)", true);
+    row("Model", s.model, s.providerName + " · " + s.modelName);
+  } else {
+    row("Ollama", s.ollama, s.ollama ? "läuft" : "läuft nicht");
+    row("Model", s.model, s.model ? s.modelName + " ist geladen" : s.modelName + " fehlt noch");
+  }
+  const le = $("lastError");
+  if (s.lastError) { le.hidden = false; le.textContent = "Letzter Fehler vom Anbieter (" + ago(s.lastError.ago) + "): " + s.lastError.text; }
+  else { le.hidden = true; }
   row("Proxy", s.proxy, s.proxy ? "läuft" : "läuft nicht");
   if (s.proxy) row("Use", s.lastUse !== null, ago(s.lastUse) + (s.corrections ? " (" + s.corrections + " Korrekturen)" : ""), s.lastUse === null);
   else row("Use", false, "Server ist aus", true);
@@ -229,6 +285,87 @@ $("quitBtn").addEventListener("click", async () => {
   await post("/api/quit");
   document.body.innerHTML = "<main><h1>Beendet</h1><p class='sub'>Du kannst dieses Fenster schließen.</p></main>";
 });
+
+// ---- Anbieter ----
+let provData = null;
+
+async function loadProviders() {
+  try {
+    provData = await (await fetch("/api/providers", { cache: "no-store" })).json();
+    $("provSelect").innerHTML = provData.providers
+      .map((p) => '<option value="' + p.id + '">' + p.name + "</option>").join("");
+    $("provSelect").value = provData.active;
+    showProvider();
+  } catch (e) {}
+}
+
+function currentProvider() {
+  return provData && provData.providers.find((p) => p.id === $("provSelect").value);
+}
+
+function showProvider() {
+  const p = currentProvider();
+  if (!p) return;
+  const active = provData.providers.find((x) => x.id === provData.active);
+  $("provSummary").textContent = active.name + (active.hosted ? " · " + active.model : "");
+  $("provNote").textContent = p.note;
+  $("provUrlRow").hidden = !p.editableUrl;
+  $("provKeyRow").hidden = !(p.needsKey || p.id === "custom");
+  $("provUrl").value = p.baseUrl;
+  $("provKey").value = "";
+  $("provKey").placeholder = p.hasKey ? "gespeichert (" + p.keyHint + "), leer lassen = behalten" : "Schlüssel hier einfügen";
+  const link = $("provKeyLink");
+  link.hidden = !p.keyUrl;
+  link.href = p.keyUrl || "#";
+  $("provModel").value = p.model;
+  $("provReword").value = p.rewordModel;
+  $("provCloudWarn").hidden = !p.hosted;
+  setResult("", "");
+}
+
+function setResult(text, kind) {
+  const r = $("provResult");
+  r.textContent = text;
+  r.className = "hint result " + kind;
+}
+
+function providerBody() {
+  const p = currentProvider();
+  return {
+    provider: p.id, key: $("provKey").value, model: $("provModel").value,
+    reword_model: $("provReword").value, base_url: p.editableUrl ? $("provUrl").value : null,
+  };
+}
+
+async function providerCall(path, busyText) {
+  setResult(busyText, "");
+  $("provTest").disabled = $("provSave").disabled = true;
+  try {
+    const r = await fetch(path, { method: "POST", headers: Object.assign({ "Content-Type": "application/json" }, HEAD), body: JSON.stringify(providerBody()) });
+    const d = await r.json();
+    setResult(d.message, d.ok ? "ok" : "bad");
+    return d;
+  } catch (e) {
+    setResult("Keine Verbindung zum Steuerungsprogramm.", "bad");
+  } finally {
+    $("provTest").disabled = $("provSave").disabled = false;
+  }
+}
+
+$("provToggle").addEventListener("click", () => {
+  const open = $("provBody").hidden;
+  $("provBody").hidden = !open;
+  $("provToggle").setAttribute("aria-expanded", open ? "true" : "false");
+  $("provArrow").textContent = open ? "▴" : "▾";
+  if (open && !provData) loadProviders();
+});
+$("provSelect").addEventListener("change", showProvider);
+$("provTest").addEventListener("click", () => providerCall("/api/provider/test", "Teste …"));
+$("provSave").addEventListener("click", async () => {
+  const d = await providerCall("/api/provider/save", "Speichere …");
+  if (d && d.ok) { await loadProviders(); poll(); }
+});
+loadProviders();
 
 poll();
 setInterval(poll, 1500);

@@ -13,3 +13,7 @@ __pycache__/
 # macOS / Editor
 .DS_Store
 .idea/
+
+# Anbieter-Einstellungen mit Schlüsseln (nie ins Git)
+proxy/henri-config.json
+proxy/henri-config.json.tmp

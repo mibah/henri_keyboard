@@ -26,7 +26,9 @@ In Passwortfeldern sind die KI-Funktionen ausgeblendet.
 | `keyboard/` | Android-App (Kotlin, ohne Fremdbibliotheken): Tastatur und Einrichtungs-Activity |
 | `proxy/` | Dünner HTTP-Proxy (Python, nur Standardbibliothek) vor einer OpenAI-kompatiblen LLM-API |
 
-Der API-Key und der Prompt liegen nur im Proxy, nie auf dem Handy.
+Der API-Key und der Prompt liegen nur im Proxy, nie auf dem Handy. Als Sprachmodell dient standardmäßig
+ein lokales Ollama; auf der Steuerungsseite lässt sich stattdessen ein Cloud-Anbieter mit
+OpenAI-kompatibler Schnittstelle wählen (`proxy/providers.py`, Einstellungen in `proxy/henri-config.json`).
 
 ## Einstellungen in der Handy-App
 

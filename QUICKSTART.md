@@ -98,6 +98,25 @@ HENRI_REWORD_MODEL=qwen2.5:7b ./Start-Henri.command     # Mac
 Beim ersten Start wird es geladen (ca. 4,7 GB). Zwei Modelle brauchen mehr Arbeitsspeicher.
 Von Hand: `LLM_MODEL=gemma3:4b LLM_REWORD_MODEL=qwen2.5:7b python3 server.py`.
 
+## Anderen Anbieter nutzen, z. B. wenn der Rechner zu langsam ist (optional)
+
+Standard ist **Lokal (Ollama)**. Auf der Steuerungsseite gibt es den zugeklappten Bereich
+**Anbieter für das Sprachmodell**. Dort lässt sich stattdessen ein Cloud-Dienst wählen
+(Groq, Mistral, Google Gemini, OpenRouter oder ein eigener mit OpenAI-Schnittstelle):
+
+1. Beim Anbieter ein Konto anlegen und einen **Schlüssel (API-Key)** erstellen. Der Link dazu steht im Bereich.
+2. Anbieter wählen, Schlüssel einfügen, bei Bedarf das Modell ändern. Die Modellnamen ändern sich bei den
+   Anbietern öfter, bei Fehlern dort den aktuellen Namen nachsehen.
+3. **Testen** prüft Schlüssel und Modell und sagt auf Deutsch, was nicht stimmt.
+4. **Speichern und übernehmen**. Läuft der Server, startet er damit neu.
+
+Das Handy bleibt unverändert, es zeigt nur den Modellnamen mit dem Zusatz "(Cloud)". Der Schlüssel liegt nur
+in `proxy/henri-config.json` auf diesem Rechner (nicht im Git, nur für den Benutzer lesbar).
+
+**Datenschutz:** Bei Cloud-Anbietern verlassen die Texte den Rechner. Kostenlose Stufen dürfen Eingaben teils
+zur Verbesserung nutzen. Für echte Nachrichten ein bezahltes Konto mit Standort in der EU wählen.
+Zurück zu lokal: im Bereich wieder **Lokal (Ollama)** wählen und speichern.
+
 ## Wenn etwas nicht klappt
 
 | Problem | Ursache und Lösung |

@@ -14,6 +14,7 @@ import json
 import os
 import re
 import time
+import urllib.error
 import urllib.request
 from collections import defaultdict, deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -37,6 +38,19 @@ _hits = defaultdict(deque)
 
 # Nur Zähler und Zeitpunkt, keine Inhalte. Für die Statusanzeige der Steuerungsseite.
 STATS = {"last": None, "count": 0}
+
+# Optional, vom Launcher je nach gewähltem Anbieter gesetzt. Standard: leer, Verhalten wie bisher.
+EXTRA_BODY = {}      # zusätzliche Felder in der Anfrage an den Anbieter
+EXTRA_HEADERS = {}   # zusätzliche HTTP-Header
+HEALTH_SUFFIX = ""   # Zusatz hinter dem Modellnamen bei /health, z. B. " (Cloud)"
+
+# Letzter Fehler beim Anbieter, nur als Kennung ("HTTP 429"), nie mit Inhalten.
+LAST_ERROR = {"what": None, "at": None}
+
+
+def note_error(e):
+    LAST_ERROR["what"] = ("HTTP %d" % e.code) if isinstance(e, urllib.error.HTTPError) else type(e).__name__
+    LAST_ERROR["at"] = time.time()
 
 
 def rate_limited(ip):
@@ -69,6 +83,8 @@ def chat(messages, temperature=0, model=None):
     headers = {"Content-Type": "application/json"}
     if API_KEY:
         headers["Authorization"] = "Bearer " + API_KEY
+    headers.update(EXTRA_HEADERS)
+    body.update(EXTRA_BODY)
     req = urllib.request.Request(
         BASE_URL + "/chat/completions", json.dumps(body).encode(), headers
     )
@@ -310,9 +326,11 @@ class Handler(BaseHTTPRequestHandler):
             last = STATS["last"]
             self._send(200, {
                 "ok": True,
-                "model": MODEL,
+                "model": MODEL + HEALTH_SUFFIX,
                 "corrections": STATS["count"],
                 "last_correction_ago": None if last is None else int(time.time() - last),
+                "last_error": None if LAST_ERROR["at"] is None else {
+                    "what": LAST_ERROR["what"], "ago": int(time.time() - LAST_ERROR["at"])},
             })
         else:
             self._send(404, {"error": "not found"})
@@ -342,8 +360,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"text": result})
         except (ValueError, KeyError, TypeError):
             self._send(400, {"error": "bad request"})
-        except Exception:
+        except Exception as e:
             # Keine Inhalte loggen (Datenschutz), nur den Fehlerfall melden
+            note_error(e)
             self._send(502, {"error": "llm unavailable"})
 
     def _reword(self, data):
