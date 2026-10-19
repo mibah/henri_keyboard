@@ -164,7 +164,7 @@ class MainActivity : Activity() {
         )
         col.addView(tryout)
 
-        col.addView(text("Version 0.1", 13f, cGrey).apply {
+        col.addView(text("Version ${versionName()}", 13f, cGrey).apply {
             gravity = Gravity.CENTER
             setPadding(0, dp(6), 0, 0)
         }, LinearLayout.LayoutParams(-1, -2))
@@ -430,6 +430,10 @@ class MainActivity : Activity() {
 
     private fun ripple(fill: Int, radiusDp: Int) =
         RippleDrawable(ColorStateList.valueOf(Color.argb(60, 255, 255, 255)), rounded(fill, radiusDp), null)
+
+    @Suppress("DEPRECATION")
+    private fun versionName(): String =
+        try { packageManager.getPackageInfo(packageName, 0).versionName ?: "?" } catch (e: Exception) { "?" }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 }
