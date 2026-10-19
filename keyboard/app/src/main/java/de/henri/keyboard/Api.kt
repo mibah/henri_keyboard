@@ -19,6 +19,20 @@ object Api {
 
     fun token(c: Context) = prefs(c).getString("token", "").orEmpty().trim()
 
+    /** Vom Nutzer gewollte Verbindung: false = getrennt (Server läuft evtl. weiter, wird aber nicht benutzt). */
+    fun enabled(c: Context) = prefs(c).getBoolean("enabled", true)
+
+    fun setEnabled(c: Context, on: Boolean) {
+        prefs(c).edit().putBoolean("enabled", on).apply()
+    }
+
+    /** Schneller Erreichbarkeitstest (höchstens ca. 5 s): Name des Modells oder null, wenn der Server nicht antwortet. */
+    fun check(c: Context): String? = try {
+        JSONObject(read(open(c, "/health", "GET", 2500, 2500))).optString("model", "?")
+    } catch (e: Exception) {
+        null
+    }
+
     fun autoSpeak(c: Context) = prefs(c).getBoolean("autospeak", true)
 
     fun save(c: Context, url: String, token: String, autoSpeak: Boolean) {
@@ -81,11 +95,11 @@ object Api {
         return JSONObject(read(conn)).optString("model", "?")
     }
 
-    private fun open(c: Context, path: String, method: String): HttpURLConnection {
+    private fun open(c: Context, path: String, method: String, connectMs: Int = 8000, readMs: Int = 60000): HttpURLConnection {
         val conn = URL(baseUrl(c) + path).openConnection() as HttpURLConnection
         conn.requestMethod = method
-        conn.connectTimeout = 8000
-        conn.readTimeout = 60000
+        conn.connectTimeout = connectMs
+        conn.readTimeout = readMs
         conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")
         val token = token(c)
         if (token.isNotEmpty()) conn.setRequestProperty("Authorization", "Bearer $token")

@@ -80,13 +80,16 @@ class KeyboardService : InputMethodService() {
     private var selection: IntRange? = null // markiertes (gelbes) Wort im Vorschlag
     private val letterKeys = mutableListOf<Pair<TextView, String>>()
 
-    private val bg = Color.rgb(18, 18, 18)
-    private val keyBg = Color.rgb(58, 58, 62)
-    private val specialBg = Color.rgb(32, 82, 140)
-    private val stopBg = Color.rgb(176, 42, 42)
+    // Aussehen und Bedienung aus den Einstellungen der Henri-App (Standard = bisheriges Aussehen)
+    private lateinit var look: Look
+    private val bg get() = look.bg
+    private val keyBg get() = look.keyBg
+    private val specialBg get() = look.specialBg
+    private val stopBg get() = look.btnStop
 
     override fun onCreate() {
         super.onCreate()
+        look = Look.load(this)
         initTts()
     }
 
@@ -104,7 +107,7 @@ class KeyboardService : InputMethodService() {
                     return@post
                 }
                 tts?.language = Locale.GERMAN
-                tts?.setSpeechRate(0.95f)
+                tts?.setSpeechRate(look.speechRate)
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(utteranceId: String?) {}
                     override fun onDone(utteranceId: String?) = utteranceEnded(utteranceId)
@@ -133,9 +136,9 @@ class KeyboardService : InputMethodService() {
         }
 
         suggestionView = TextView(this).apply {
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 24f)
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.rgb(30, 30, 36))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, look.suggestionSp)
+            setTextColor(look.panelText)
+            setBackgroundColor(look.panelBg)
             setPadding(dp(12), dp(8), dp(12), dp(8))
             maxLines = 6
             // Lange Vorschläge: im Feld wischen. Kein Scrollbalken: der per Code eingeschaltete
@@ -169,25 +172,25 @@ class KeyboardService : InputMethodService() {
         hintRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(Color.rgb(30, 30, 36))
+            setBackgroundColor(look.panelBg)
             setPadding(dp(12), 0, dp(12), dp(6))
             visibility = View.GONE
         }
-        spinner = Spinner(this, Color.rgb(255, 193, 7)).apply { visibility = View.GONE }
+        spinner = Spinner(this, look.hlSingle).apply { visibility = View.GONE }
         hintRow.addView(spinner, LinearLayout.LayoutParams(dp(22), dp(22)).apply { rightMargin = dp(10) })
         scrollHint = TextView(this).apply {
             text = HINT_SELECT
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-            setTextColor(Color.rgb(255, 193, 7))
+            setTextColor(look.hintText)
         }
         hintRow.addView(scrollHint, LinearLayout.LayoutParams(-2, -2))
         root.addView(hintRow, LinearLayout.LayoutParams(-1, -2))
 
         aiBar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        aiBar.addView(bigButton("Verbessern", Color.rgb(30, 120, 60)) { improve() }, weighted(1.2f))
-        speakButton = bigButton("Vorlesen", specialBg) { speakCurrent() }
+        aiBar.addView(bigButton("Verbessern", look.btnImprove) { improve() }, weighted(1.2f))
+        speakButton = bigButton("Vorlesen", look.btnSpeak) { speakCurrent() }
         aiBar.addView(speakButton, weighted(1f))
-        applyButton = bigButton("Übernehmen", Color.rgb(160, 90, 0)) { applySuggestion() }
+        applyButton = bigButton("Übernehmen", look.btnApply) { applySuggestion() }
         aiBar.addView(applyButton, weighted(1.2f))
         root.addView(aiBar, LinearLayout.LayoutParams(-1, dp(56)))
 
@@ -200,6 +203,13 @@ class KeyboardService : InputMethodService() {
 
     override fun onStartInputView(info: EditorInfo, restarting: Boolean) {
         super.onStartInputView(info, restarting)
+        // Wurde in der App etwas am Aussehen geändert, die Tastatur damit neu aufbauen.
+        val fresh = Look.load(this)
+        if (fresh != look) {
+            look = fresh
+            tts?.setSpeechRate(look.speechRate)
+            setInputView(onCreateInputView())
+        }
         // In Passwortfeldern keine KI: Text würde sonst an den Server gehen.
         aiBar.visibility = if (isPasswordField(info)) View.GONE else View.VISIBLE
         clearSuggestion()
@@ -235,6 +245,10 @@ class KeyboardService : InputMethodService() {
     }
 
     private fun improve() {
+        if (!Api.enabled(this)) { // in der Henri-App getrennt: Server wird nicht benutzt
+            showStatus("Getrennt. In der Henri-App auf „Verbinden“ tippen.")
+            return
+        }
         val text = fieldText()
         if (text.isNullOrBlank()) {
             showStatus("Erst etwas schreiben, dann „Verbessern“.")
@@ -329,7 +343,9 @@ class KeyboardService : InputMethodService() {
         speaking = on
         if (!::speakButton.isInitialized) return
         speakButton.text = if (on) "Stopp" else "Vorlesen"
-        (speakButton.background as? GradientDrawable)?.setColor(if (on) stopBg else specialBg)
+        val fill = if (on) stopBg else look.btnSpeak
+        (speakButton.background as? GradientDrawable)?.setColor(fill)
+        speakButton.setTextColor(Look.onColor(fill))
     }
 
     private fun showStatus(msg: String) {
@@ -369,17 +385,17 @@ class KeyboardService : InputMethodService() {
     }
 
     /** Zeigt den Vorschlag; ein geändertes Wort ([hlStart] bis [hlEnd]) wird gelb markiert. */
-    private fun showSuggestionText(text: String, hlStart: Int = -1, hlEnd: Int = -1, color: Int = Color.rgb(255, 193, 7)) {
+    private fun showSuggestionText(text: String, hlStart: Int = -1, hlEnd: Int = -1, color: Int = look.hlSingle) {
         val styled = SpannableString(text)
         if (hlStart in 0 until hlEnd) {
             styled.setSpan(BackgroundColorSpan(color), hlStart, hlEnd, 0)
-            styled.setSpan(ForegroundColorSpan(Color.BLACK), hlStart, hlEnd, 0)
+            styled.setSpan(ForegroundColorSpan(look.hlText), hlStart, hlEnd, 0)
         }
         suggestionView.text = styled
     }
 
     private fun resetHint() {
-        val base = if (selection != null) HINT_RENEW else HINT_SELECT
+        val base = if (selection != null) hintRenew() else HINT_SELECT
         scrollHint.text = if (suggestionView.canScrollVertically(1)) "$base  ·  ↕ Mehr Text: wischen" else base
         spinner.visibility = View.GONE
         hintRow.visibility = if (suggestion == null) View.GONE else View.VISIBLE
@@ -549,7 +565,7 @@ class KeyboardService : InputMethodService() {
         showHint(HINT_DRAG)
         main.postDelayed({
             val p = passage
-            if (multiSelecting && p != null) showSuggestionText(text, p.first, p.last + 1, GREEN)
+            if (multiSelecting && p != null) showSuggestionText(text, p.first, p.last + 1, look.hlMulti)
         }, 140)
     }
 
@@ -567,14 +583,14 @@ class KeyboardService : InputMethodService() {
                 val range = minOf(anchor.first, here.first)..maxOf(anchor.last, here.last)
                 if (range != passage && wordCount(text.substring(range.first, range.last + 1)) <= MAX_SELECT_WORDS) {
                     passage = range
-                    showSuggestionText(text, range.first, range.last + 1, GREEN)
+                    showSuggestionText(text, range.first, range.last + 1, look.hlMulti)
                 }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 multiSelecting = false
                 multiAnchor = null
                 val range = passage
-                showHint(HINT_PASSAGE)
+                showHint(hintPassage())
                 if (ev.actionMasked == MotionEvent.ACTION_UP && range != null && Api.autoSpeak(this)) {
                     speak(text.substring(range.first, range.last + 1))
                 }
@@ -640,8 +656,8 @@ class KeyboardService : InputMethodService() {
         val updated = before + newText + after
         suggestion = updated
         passage = before.length until before.length + newText.length
-        showSuggestionText(updated, before.length, before.length + newText.length, GREEN)
-        showHint(HINT_PASSAGE)
+        showSuggestionText(updated, before.length, before.length + newText.length, look.hlMulti)
+        showHint(hintPassage())
         suggestionView.post { // Neue Stelle in den sichtbaren Bereich holen
             val layout = suggestionView.layout ?: return@post
             val line = layout.getLineForOffset(before.length)
@@ -678,7 +694,7 @@ class KeyboardService : InputMethodService() {
         keysContainer.addView(keyRow(rows[1]))
 
         val row3 = row()
-        if (!symbols) row3.addView(actionKey("⇧", 1.4f, if (shift) Color.rgb(200, 150, 0) else keyBg) {
+        if (!symbols) row3.addView(actionKey("⇧", 1.4f, if (shift) look.shiftOn else keyBg) {
             shift = !shift
             applyShiftLabels()
             buildKeys()
@@ -708,7 +724,7 @@ class KeyboardService : InputMethodService() {
 
     private fun row() = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
-        layoutParams = LinearLayout.LayoutParams(-1, dp(KEY_HEIGHT_DP))
+        layoutParams = LinearLayout.LayoutParams(-1, dp(look.keyHeightDp))
     }
 
     private fun charKey(label: String, weight: Float): TextView {
@@ -717,7 +733,7 @@ class KeyboardService : InputMethodService() {
         if (isLetter) letterKeys.add(k to label)
         k.setOnTouchListener { v, e ->
             if (e.action == MotionEvent.ACTION_DOWN) {
-                v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                buzz(v)
                 typeText(if (isLetter && shift) label.uppercase() else label)
                 showPress(v as TextView)
             } else if (e.action == MotionEvent.ACTION_UP || e.action == MotionEvent.ACTION_CANCEL) {
@@ -732,7 +748,7 @@ class KeyboardService : InputMethodService() {
         val k = keyView(label, weight, color)
         k.setOnTouchListener { v, e ->
             if (e.action == MotionEvent.ACTION_DOWN) {
-                v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                buzz(v)
                 showPress(v as TextView)
                 onTap()
             } else if (e.action == MotionEvent.ACTION_UP || e.action == MotionEvent.ACTION_CANCEL) {
@@ -740,13 +756,13 @@ class KeyboardService : InputMethodService() {
             }
             true
         }
-        if (label == "Leerzeichen") k.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+        if (label == "Leerzeichen") k.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f * scaleFor(0.5f))
         return k
     }
 
     /** Löschen: gedrückt halten wiederholt. */
     private fun repeatKey(label: String, weight: Float): TextView {
-        val k = keyView(label, weight, Color.rgb(120, 40, 40))
+        val k = keyView(label, weight, look.deleteBg)
         val repeater = object : Runnable {
             override fun run() {
                 sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL)
@@ -756,7 +772,7 @@ class KeyboardService : InputMethodService() {
         k.setOnTouchListener { v, e ->
             when (e.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                    buzz(v)
                     showPress(v as TextView)
                     sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL)
                     main.postDelayed(repeater, 400)
@@ -776,12 +792,13 @@ class KeyboardService : InputMethodService() {
         text = label
         tag = color
         gravity = Gravity.CENTER
-        setTextColor(Color.WHITE)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 26f)
+        setTextColor(look.textOnKey(color))
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, look.keyTextSp)
         setTypeface(typeface, Typeface.BOLD)
         background = GradientDrawable().apply {
             setColor(color)
             cornerRadius = dp(8).toFloat()
+            if (look.keyStroke != 0) setStroke(dp(2), look.keyStroke)
         }
         val lp = LinearLayout.LayoutParams(0, -1, weight)
         lp.setMargins(dp(2), dp(3), dp(2), dp(3))
@@ -791,15 +808,16 @@ class KeyboardService : InputMethodService() {
     private fun bigButton(label: String, color: Int, onTap: () -> Unit) = TextView(this).apply {
         text = label
         gravity = Gravity.CENTER
-        setTextColor(Color.WHITE)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 19f)
+        setTextColor(Look.onColor(color))
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 19f * scaleFor(0.6f))
         setTypeface(typeface, Typeface.BOLD)
         background = GradientDrawable().apply {
             setColor(color)
             cornerRadius = dp(8).toFloat()
+            if (look.keyStroke != 0) setStroke(dp(2), look.keyStroke)
         }
         setOnClickListener {
-            it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            buzz(it)
             onTap()
         }
     }
@@ -810,18 +828,31 @@ class KeyboardService : InputMethodService() {
 
     // ---------- Rückmeldung beim Drücken ----------
 
-    private val pressColor = Color.rgb(255, 193, 7)
-
-    /** Gedrückte Taste leuchtet gelb. */
+    /** Gedrückte Taste leuchtet in der Druckfarbe des Farbschemas (Standard: gelb). */
     private fun showPress(v: TextView) {
-        (v.background as? GradientDrawable)?.setColor(pressColor)
-        v.setTextColor(Color.BLACK)
+        (v.background as? GradientDrawable)?.setColor(look.press)
+        v.setTextColor(look.pressText)
     }
 
     private fun hidePress(v: TextView) {
-        (v.background as? GradientDrawable)?.setColor(v.tag as? Int ?: keyBg)
-        v.setTextColor(Color.WHITE)
+        val fill = v.tag as? Int ?: keyBg
+        (v.background as? GradientDrawable)?.setColor(fill)
+        v.setTextColor(look.textOnKey(fill))
     }
+
+    // Im Standard stehen die Farben in den Hinweisen („Gelbes Wort“, „Grüne Stelle“); bei anderen
+    // Farbschemata sind sie neutral, weil die Markierungsfarben dort anders sind.
+    private fun hintRenew() = if (look.themeId == Look.STANDARD) HINT_RENEW else HINT_RENEW_NEUTRAL
+
+    private fun hintPassage() = if (look.themeId == Look.STANDARD) HINT_PASSAGE else HINT_PASSAGE_NEUTRAL
+
+    /** Kurzes Vibrieren beim Tippen, wenn es in der App nicht abgeschaltet wurde. */
+    private fun buzz(v: View) {
+        if (look.vibration) v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+    }
+
+    /** Wie stark eine Schrift mit der Tastenschrift mitwächst (1 = voll, 0 = gar nicht). */
+    private fun scaleFor(share: Float) = 1f + (look.keyTextSp / 26f - 1f) * share
 
     private fun applyShiftLabels() {
         letterKeys.forEach { (view, base) -> view.text = if (shift) base.uppercase() else base }
@@ -868,11 +899,11 @@ class KeyboardService : InputMethodService() {
         private const val MAX_CHARS = 4000
         private const val HINT_SELECT = "Falsches Wort? Antippen zum Markieren."
         private const val HINT_RENEW = "Gelbes Wort nochmal antippen: anderes Wort."
+        private const val HINT_RENEW_NEUTRAL = "Markiertes Wort nochmal antippen: anderes Wort"
+        private const val HINT_PASSAGE_NEUTRAL = "Markierte Stelle nochmal antippen: andere Formulierung"
         private const val HINT_DRAG = "Ziehen, dann loslassen …"
         private const val HINT_PASSAGE = "Grüne Stelle nochmal antippen: andere Formulierung."
         private const val MAX_SELECT_WORDS = 15
-        private val GREEN = Color.rgb(46, 204, 113)
-        private const val KEY_HEIGHT_DP = 58
     }
 }
 

@@ -28,6 +28,14 @@ In Passwortfeldern sind die KI-Funktionen ausgeblendet.
 
 Der API-Key und der Prompt liegen nur im Proxy, nie auf dem Handy.
 
+## Einstellungen in der Handy-App
+
+Die Henri-App zeigt oben den Verbindungsstatus (grün verbunden, rot nicht erreichbar, grau getrennt)
+mit einem Knopf **Trennen/Verbinden**. Getrennt heißt: der Server läuft weiter, die Tastatur nutzt ihn
+nicht. Die aufklappbare Karte **Für Einrichter: Aussehen und Bedienung** stellt Schrift- und Tastengröße,
+fünf Farbschemata (u. a. Kontrast Gelb auf Schwarz, Blau/Gelb), Vorlesegeschwindigkeit und Vibration ein.
+Standard ist das ursprüngliche Aussehen. Änderungen gelten, sobald die Tastatur wieder geöffnet wird.
+
 ## Schnellstart mit Steuerungsseite
 
 Doppelklick auf `Start-Henri.command` (Mac) oder `Start-Henri.bat` (Windows) öffnet eine Seite
