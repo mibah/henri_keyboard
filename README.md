@@ -5,6 +5,8 @@ Ein Sprachmodell korrigiert die Nachricht, die Tastatur liest das Ergebnis vor, 
 sendet selbst. Sie funktioniert in jeder App (WhatsApp, Signal, SMS, E-Mail), ohne Zugriff
 auf die Messenger selbst.
 
+> Hinweis: Der Code dieses Projekts wurde mit Hilfe von Claude (KI-Assistent von Anthropic) erzeugt.
+
 ## Ablauf
 
 1. Nutzer tippt (oder diktiert) mit der Henri Tastatur.
