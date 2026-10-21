@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Henri Windows-Helfer</title>
+<style>
+  :root {
+    --bg: #0e1116; --card: #171c24; --line: #2a3140; --text: #f3f6fb; --muted: #a9b4c6;
+    --green: #2ecc71; --red: #ff5d5d; --amber: #ffb938; --blue: #4da3ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh;
+    background: radial-gradient(1200px 600px at 50% -10%, #1b2433 0%, var(--bg) 60%);
+    color: var(--text);
+    font: 20px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex; justify-content: center; padding: 32px 16px;
+  }
+  main { width: 100%; max-width: 700px; }
+  h1 { font-size: 28px; margin: 0 0 4px; }
+  h2 { font-size: 22px; margin: 0 0 12px; }
+  .sub { color: var(--muted); font-size: 18px; margin: 0 0 24px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 24px; margin-bottom: 18px; }
+  .card.warnbox { border-color: var(--amber); background: #2a2210; }
+  .state { display: flex; align-items: center; gap: 18px; }
+  .dot { width: 40px; height: 40px; border-radius: 50%; background: #39414f; flex: none; }
+  .dot.run { background: var(--amber); box-shadow: 0 0 0 6px rgba(255, 185, 56, .18); animation: pulse 1.2s ease-in-out infinite; }
+  .dot.done { background: var(--green); box-shadow: 0 0 0 6px rgba(46, 204, 113, .18); }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 14px rgba(255, 185, 56, .08); } }
+  @media (prefers-reduced-motion: reduce) { .dot.run { animation: none; } }
+  .stage { font-size: 24px; font-weight: 700; line-height: 1.2; }
+  button { font: inherit; cursor: pointer; }
+  button.main { width: 100%; margin-top: 20px; padding: 20px; font-size: 26px; font-weight: 700; color: #07130c;
+    background: var(--green); border: 0; border-radius: 16px; }
+  button.main:disabled { background: #39414f; color: #aeb7c6; cursor: default; }
+  button.sec { padding: 12px 18px; font-size: 18px; font-weight: 700; color: var(--text); background: #26303f;
+    border: 1px solid var(--line); border-radius: 12px; }
+  button.sec:disabled { opacity: .5; cursor: default; }
+  button:focus-visible { outline: 4px solid var(--blue); outline-offset: 3px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li.item { display: flex; gap: 14px; padding: 12px 0; border-top: 1px solid var(--line); }
+  li.item:first-child { border-top: 0; }
+  .mark { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; flex: none;
+    background: #2a3140; color: var(--muted); }
+  .ok .mark { background: var(--green); color: #07130c; }
+  .bad .mark { background: var(--red); color: #1a0505; }
+  .warn .mark { background: var(--amber); color: #241a02; }
+  .info .mark { background: var(--blue); color: #04121f; }
+  .title { font-weight: 600; }
+  .detail { color: var(--muted); font-size: 17px; word-break: break-word; }
+  .diag li { padding: 8px 0 8px 22px; position: relative; }
+  .diag li::before { content: "→"; position: absolute; left: 0; color: var(--amber); }
+  .addr { font: 700 24px ui-monospace, Menlo, Consolas, monospace; word-break: break-all; margin: 6px 0; }
+  .hint { color: var(--muted); font-size: 17px; }
+  .event { padding: 8px 0; border-top: 1px solid var(--line); color: var(--green); font-weight: 600; }
+  .none { color: var(--amber); }
+  ol.plan { margin: 0; padding-left: 0; list-style: none; counter-reset: n; }
+  ol.plan > li { counter-increment: n; position: relative; padding: 12px 0 12px 46px; border-top: 1px solid var(--line); }
+  ol.plan > li:first-child { border-top: 0; }
+  ol.plan > li::before { content: counter(n); position: absolute; left: 0; top: 12px; width: 32px; height: 32px; border-radius: 50%;
+    background: var(--amber); color: #241a02; font-weight: 800; display: grid; place-items: center; }
+  .expect { color: var(--green); font-size: 17px; margin: 2px 0 0; }
+  .sol { margin-top: 10px; padding: 12px 14px; border-radius: 12px; background: #11161d; border: 1px solid var(--line); }
+  .sol .head { font-weight: 700; color: var(--amber); margin-bottom: 6px; }
+  .sol .step { margin: 6px 0; font-size: 17px; }
+  .cmd { display: flex; gap: 10px; align-items: flex-start; margin: 6px 0 10px; }
+  .cmd code { flex: 1; font: 15px ui-monospace, Menlo, Consolas, monospace; background: #0b0e13; border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 10px; word-break: break-all; }
+  .cmd button { flex: none; }
+  pre { background: #0b0e13; border: 1px solid var(--line); border-radius: 12px; padding: 14px; font-size: 14px;
+    max-height: 340px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Henri Windows-Helfer</h1>
+  <p class="sub">Findet heraus, warum das Handy den Rechner nicht erreicht, und richtet es ein.</p>
+
+  <section class="card warnbox" id="nowin" hidden>
+    Das hier ist kein Windows-Rechner. Die Windows-Prüfungen (Firewall, Netzwerk) werden übersprungen.
+  </section>
+
+  <section class="card" aria-live="polite">
+    <div class="state">
+      <div class="dot" id="dot"></div>
+      <div class="stage" id="stage">Bereit</div>
+    </div>
+    <button class="main" id="autoBtn" type="button">Alles prüfen</button>
+    <p class="hint">Der Helfer <b>ändert nichts</b> am Rechner. Er sucht die Ursache, schlägt Lösungen vor, startet den
+      Handy-Test und schreibt den Bericht.</p>
+  </section>
+
+  <section class="card" id="diagCard" hidden>
+    <h2>Ergebnis: woran es liegt</h2>
+    <ul class="diag" id="diag"></ul>
+  </section>
+
+  <section class="card" id="planCard" hidden>
+    <h2>Arbeitsplan</h2>
+    <p class="hint">Von oben nach unten abarbeiten. Jeder Befehl lässt sich mit einem Klick kopieren. „Erwartet“ sagt, woran du
+      siehst, dass der Schritt geklappt hat. Am Ende steht die Prüfung, ob alles funktioniert.</p>
+    <ol class="plan" id="plan"></ol>
+  </section>
+
+  <section class="card" id="listCard" hidden>
+    <h2>Prüfungen <span class="hint" id="checkedAt"></span></h2>
+    <ul id="findings"></ul>
+  </section>
+
+  <section class="card" id="testCard">
+    <h2>Handy-Test</h2>
+    <p class="hint">Öffne am <b>Handy im Browser</b> eine dieser Adressen (WLAN an, mobile Daten aus). Meldet sich das Handy,
+      steht es hier.</p>
+    <div id="addrs"></div>
+    <p class="hint" style="margin-top:16px">Optional, hilft bei der Suche: die <b>IP-Adresse des Handys</b> eintragen
+      (Android: Einstellungen, WLAN, Zahnrad beim WLAN, IP-Adresse). Der Helfer prüft dann, ob der Rechner das Handy im Netz sieht.</p>
+    <div class="row" style="margin-top:6px">
+      <input id="phoneIp" type="text" inputmode="decimal" placeholder="z. B. 192.168.1.42" autocomplete="off"
+        style="flex:1 1 220px;font:inherit;font-size:20px;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:#0b0e13;color:var(--text)">
+      <button class="sec" id="phoneBtn" type="button">Handy prüfen</button>
+    </div>
+    <p class="hint none" id="phoneErr" hidden>Das ist keine gültige Adresse. Vier Zahlen mit Punkten, zum Beispiel 192.168.1.42.</p>
+    <div class="row">
+      <button class="sec" id="testStart" type="button">Handy-Test starten</button>
+      <button class="sec" id="testStop" type="button">Beenden</button>
+    </div>
+    <div id="events"></div>
+    <p class="hint none" id="noEvent" hidden>Bisher hat sich kein Gerät gemeldet. Stimmt die Adresse (mit http:// davor)?
+      Sind Handy und Rechner im selben WLAN, nicht im Gastnetz? Ist am Handy VPN oder „Privates DNS“ aus?
+      Meldet sich nichts, liegt es meist am Router (Geräte-Trennung) oder an einem Sicherheitsprogramm.</p>
+  </section>
+
+  <section class="card">
+    <h2>Bericht</h2>
+    <p class="hint">Alles, was der Helfer tut, wird protokolliert. Den Bericht kann man jemandem schicken, der helfen soll.
+      Benutzer- und Rechnername sind darin unkenntlich gemacht.</p>
+    <div class="row">
+      <button class="sec" id="repBtn" type="button">Bericht erstellen</button>
+      <button class="sec" id="copyBtn" type="button" disabled>Bericht kopieren</button>
+      <button class="sec" id="dirBtn" type="button">Ordner öffnen</button>
+    </div>
+    <p class="hint" id="repPath"></p>
+    <pre id="repText" hidden></pre>
+  </section>
+
+  <section class="card">
+    <button class="sec" id="chkBtn" type="button">Nur prüfen</button>
+    <button class="sec" id="quitBtn" type="button">Helfer beenden</button>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const post = (path, body) => fetch(path, { method: "POST", headers: { "X-Henri": "1", "Content-Type": "application/json" },
+  body: JSON.stringify(body || {}) }).then((r) => r.json());
+const MARKS = { ok: "✓", bad: "✕", warn: "!", info: "i", skip: "–" };
+let repText = "";
+
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
+
+function render(s) {
+  $("nowin").hidden = s.windows;
+  $("dot").className = "dot" + (s.running ? " run" : s.checkedAt ? " done" : "");
+  $("stage").textContent = s.stage || "Bereit";
+  $("autoBtn").disabled = s.running;
+  $("autoBtn").textContent = s.running ? "Bitte warten …" : "Alles prüfen";
+  $("chkBtn").disabled = s.running;
+
+  const has = s.findings.length > 0;
+  $("diagCard").hidden = !has;
+  $("listCard").hidden = !has;
+  $("checkedAt").textContent = s.checkedAt ? "(" + s.checkedAt + ")" : "";
+  const diag = $("diag"); diag.replaceChildren();
+  s.diagnosis.forEach((d) => diag.appendChild(el("li", "", d.text)));
+  $("planCard").hidden = !(s.plan && s.plan.length);
+  const plan = $("plan"); plan.replaceChildren();
+  (s.plan || []).forEach((st) => {
+    const li = el("li");
+    li.appendChild(el("div", "", st.text));
+    if (st.cmd) {
+      const row = el("div", "cmd");
+      row.appendChild(el("code", "", st.cmd));
+      const b = el("button", "sec", "Kopieren");
+      b.addEventListener("click", async () => {
+        try { await navigator.clipboard.writeText(st.cmd); b.textContent = "Kopiert ✓"; }
+        catch (e) { b.textContent = "Von Hand markieren"; }
+        setTimeout(() => { b.textContent = "Kopieren"; }, 2000);
+      });
+      row.appendChild(b);
+      li.appendChild(row);
+    }
+    if (st.expect) li.appendChild(el("div", "expect", "Erwartet: " + st.expect));
+    plan.appendChild(li);
+  });
+
+  const list = $("findings"); list.replaceChildren();
+  s.findings.forEach((f) => {
+    const li = el("li", "item " + f.status);
+    li.appendChild(el("div", "mark", MARKS[f.status] || "?"));
+    const box = el("div");
+    box.appendChild(el("div", "title", f.title));
+    box.appendChild(el("div", "detail", f.detail));
+    li.appendChild(box);
+    list.appendChild(li);
+  });
+
+  const addrs = $("addrs"); addrs.replaceChildren();
+  (s.ips.length ? s.ips : s.ip ? [s.ip] : []).forEach((ip) => addrs.appendChild(el("div", "addr", "http://" + ip + ":" + s.testPort)));
+  if (!s.ips.length && !s.ip) addrs.appendChild(el("p", "hint", "Noch keine Adresse. Erst „Alles prüfen“ drücken."));
+  const pi = $("phoneIp");
+  if (document.activeElement !== pi && !pi.value && s.phoneIp) pi.value = s.phoneIp;
+  $("phoneBtn").disabled = s.running;
+  $("testStart").disabled = s.test.active;
+  $("testStop").disabled = !s.test.active;
+  const ev = $("events"); ev.replaceChildren();
+  s.test.events.forEach((e) => ev.appendChild(el("div", "event",
+    "✓ " + e.time + "  Gerät " + e.ip + " hat sich gemeldet (Port " + e.port + (e.port === s.henriPort ? ", Henri-Server" : "") + ")")));
+  if (s.test.error) ev.appendChild(el("p", "hint none", s.test.error));
+  $("noEvent").hidden = !(s.test.active && s.test.events.length === 0);
+
+  if (s.report) $("repPath").textContent = s.report.path ? "Gespeichert um " + s.report.time + ": " + s.report.path : "Konnte nicht gespeichert werden.";
+}
+
+async function poll() {
+  try { render(await (await fetch("/api/state", { cache: "no-store" })).json()); }
+  catch (e) { $("stage").textContent = "Der Helfer läuft nicht mehr. Bitte neu starten."; }
+  setTimeout(poll, 1500);
+}
+
+$("autoBtn").addEventListener("click", () => post("/api/auto"));
+$("chkBtn").addEventListener("click", () => post("/api/check"));
+$("phoneBtn").addEventListener("click", async () => {
+  const r = await post("/api/phone", { ip: $("phoneIp").value.trim() });
+  $("phoneErr").hidden = !r.error;
+});
+$("testStart").addEventListener("click", () => post("/api/test/start"));
+$("testStop").addEventListener("click", () => post("/api/test/stop"));
+$("dirBtn").addEventListener("click", () => post("/api/open-logs"));
+$("repBtn").addEventListener("click", async () => {
+  const r = await post("/api/report");
+  repText = r.text || "";
+  $("repText").textContent = repText; $("repText").hidden = false; $("copyBtn").disabled = !repText;
+});
+$("copyBtn").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText(repText); $("copyBtn").textContent = "Kopiert ✓"; }
+  catch (e) { $("copyBtn").textContent = "Bitte von Hand markieren"; }
+  setTimeout(() => { $("copyBtn").textContent = "Bericht kopieren"; }, 2000);
+});
+$("quitBtn").addEventListener("click", async () => {
+  if (!confirm("Helfer beenden?")) return;
+  try { await post("/api/quit"); } catch (e) {}
+  $("stage").textContent = "Beendet. Dieses Fenster kann geschlossen werden.";
+});
+poll();
+</script>
+</body>
+</html>

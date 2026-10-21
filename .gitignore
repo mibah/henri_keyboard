@@ -17,3 +17,5 @@ __pycache__/
 # Anbieter-Einstellungen mit Schlüsseln (nie ins Git)
 proxy/henri-config.json
 proxy/henri-config.json.tmp
+windows-helfer/protokoll/
+release/*.zip
