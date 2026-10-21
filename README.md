@@ -76,12 +76,35 @@ Sie ist bewusst einfach gehalten, mit großer Schrift und klaren Farben.
 
 ## 🚀 Schnellstart
 
-1. **Ollama** und **Python 3** auf dem Rechner installieren.
-2. `Start-Henri.command` bzw. `Start-Henri.bat` doppelt anklicken und in der Steuerungsseite auf **Starten** drücken.
-3. Die **APK** aus den [Releases](https://github.com/mibah/henri_keyboard/releases) auf dem Handy installieren,
-   die Tastatur in den Android-Einstellungen aktivieren und in der Henri-App die Adresse des Rechners eintragen.
+Rechner und Handy müssen im **selben WLAN** sein (kein Gast-WLAN, kein VPN).
 
-Ausführliche Anleitung mit allen Schritten: **[QUICKSTART.md](QUICKSTART.md)**
+### Am Rechner
+
+1. **Henri herunterladen:** [**ZIP laden**](https://github.com/mibah/henri_keyboard/archive/refs/heads/main.zip)
+   und entpacken. (Oder: `git clone https://github.com/mibah/henri_keyboard.git`)
+2. **Ollama installieren:** [ollama.com/download](https://ollama.com/download) (Mac und Windows).
+3. **Python 3 installieren:** [python.org/downloads](https://www.python.org/downloads/).
+   Unter Windows im Installer **„Add Python to PATH“** anhaken.
+4. **Steuerung starten** per Doppelklick und dort auf **Starten** drücken:
+
+   | 🍎 Mac | 🪟 Windows |
+   |---|---|
+   | `Start-Henri.command` | `Start-Henri.bat` |
+   | Blockiert macOS die Datei: Rechtsklick → **Öffnen** → **Öffnen**. | Fragt die Firewall „Zugriff zulassen?“: **Zulassen** (private Netzwerke), sonst erreicht das Handy den Rechner nicht. |
+
+   Beim ersten Start lädt die Steuerung das Sprachmodell herunter (einmalig, mit Fortschrittsbalken).
+   Danach steht dort groß **die Adresse für das Handy**, mit Kopieren-Knopf.
+
+### Am Handy
+
+5. **APK installieren:** [**Neueste Version laden**](https://github.com/mibah/henri_keyboard/releases/latest)
+   (Datei `henri-tastatur-….apk`), öffnen und installieren. Android fragt einmalig, ob der Browser
+   Apps installieren darf: erlauben.
+6. **Henri-App öffnen**, **Tastatur aktivieren** und **auswählen** (die Knöpfe führen direkt in die Android-Einstellungen).
+7. Die **Adresse** aus der Steuerungsseite eintragen und **Speichern und Verbindung testen** drücken.
+   Erscheint „Verbunden“, geht es los: In WhatsApp & Co. ins Textfeld tippen.
+
+Mehr dazu (Wortvorschläge, Cloud-Anbieter, Fehlersuche): **[QUICKSTART.md](QUICKSTART.md)**
 
 ## 🧩 Aufbau
 
