@@ -141,7 +141,8 @@ class TestManifestUndBuild(unittest.TestCase):
 
     def test_keine_privaten_angaben_im_quelltext(self):
         api = kotlin("Api.kt")
-        self.assertNotIn("192.168.99.", api)
+        # Im Quelltext darf keine echte Netzadresse stehen, nur der Beispielwert.
+        self.assertEqual(set(re.findall(r"\b192\.168\.\d+\.\d+\b", api)), {"192.168.1.10"})
         self.assertIn('DEFAULT_URL = "http://192.168.1.10:8787"', api)
 
 
