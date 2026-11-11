@@ -42,6 +42,8 @@ data class Look(
     val suggestionSp: Float,
     val speechRate: Float,
     val vibration: Boolean,
+    val keySound: Boolean,
+    val announce: Boolean,
 ) {
     val bg get() = palette.bg
     val keyBg get() = palette.keyBg
@@ -74,6 +76,8 @@ data class Look(
         const val K_SUGGESTION = "suggestion"
         const val K_SPEECH = "speech"
         const val K_VIBRATION = "vibration"
+        const val K_SOUND = "sound"
+        const val K_ANNOUNCE = "announce"
 
         // Stufen; die jeweils erste bzw. mittlere ist der Standard (= bisheriges Aussehen).
         val KEY_TEXT_SP = listOf(26f, 30f, 34f)
@@ -167,6 +171,16 @@ data class Look(
 
         fun setVibration(c: Context, on: Boolean) = prefs(c).edit().putBoolean(K_VIBRATION, on).apply()
 
+        /** Klickton bei jedem Tastendruck (Standard: an). */
+        fun keySound(c: Context) = prefs(c).getBoolean(K_SOUND, true)
+
+        fun setKeySound(c: Context, on: Boolean) = prefs(c).edit().putBoolean(K_SOUND, on).apply()
+
+        /** Ansage beim Drücken von „Verbessern“, bevor das Ergebnis erscheint (Standard: an). */
+        fun announce(c: Context) = prefs(c).getBoolean(K_ANNOUNCE, true)
+
+        fun setAnnounce(c: Context, on: Boolean) = prefs(c).edit().putBoolean(K_ANNOUNCE, on).apply()
+
         fun reset(c: Context) = prefs(c).edit().clear().apply()
 
         fun load(c: Context): Look {
@@ -179,6 +193,8 @@ data class Look(
                 suggestionSp = SUGGESTION_SP[level(c, K_SUGGESTION, 0, SUGGESTION_SP.lastIndex)],
                 speechRate = SPEECH_RATE[level(c, K_SPEECH, DEFAULT_SPEECH, SPEECH_RATE.lastIndex)],
                 vibration = vibration(c),
+                keySound = keySound(c),
+                announce = announce(c),
             )
         }
 

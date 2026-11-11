@@ -38,21 +38,21 @@ E-Mail und jeder anderen App**, ohne Zugriff auf die Messenger selbst.
 | 1. Getippt (mit Fehlern) | 2. Nach „Verbessern“ |
 |:---:|:---:|
 | <img src="docs/handy_app_raw_text.jpeg" alt="Henri Tastatur in WhatsApp: Eine Nachricht voller Tippfehler steht im Eingabefeld" width="300"> | <img src="docs/handy_app_prediction.jpeg" alt="Der korrigierte Vorschlag erscheint groß über der Tastatur und wird vorgelesen" width="300"> |
-| Große, kontrastreiche Tasten und drei Knöpfe: **Verbessern**, **Vorlesen**, **Übernehmen**. | Der Vorschlag steht in großer Schrift da und wird vorgelesen. **Übernehmen** setzt ihn ins Feld. |
+| Große, kontrastreiche Tasten und drei Knöpfe: ✏️ **Verbessern**, 🔊 **Vorlesen**, ✅ **Übernehmen**. | Der Vorschlag steht in großer Schrift da und wird vorgelesen. ✅ setzt ihn ins Feld. |
 
 </div>
 
 ## 🔁 So funktioniert es
 
 1. **Tippen** (oder diktieren) mit der Henri Tastatur.
-2. **Verbessern**: Der Text geht an den Proxy, das Modell korrigiert Rechtschreibung und Zeichensetzung.
-3. Der Vorschlag erscheint **groß** und wird **vorgelesen** (Android-TTS).
+2. **Verbessern** (✏️): Die Tastatur sagt einmal „KI übersetzt“. Der Text geht an den Proxy, das Modell korrigiert Rechtschreibung und Zeichensetzung.
+3. Danach erscheint der Vorschlag **groß** und wird **vorgelesen** (Android-TTS). Auch bei sehr schneller Antwort wird die Ansage zuerst zu Ende gesprochen.
 4. **Falsches Wort im Vorschlag?** Antippen markiert es gelb, nochmal antippen holt ein anderes
    (Kandidaten vom Server, `/reword`). Danach wird ab diesem Satz weitergelesen.
 5. **Mehrere Wörter?** Lange drücken (die Markierung blinkt und wird grün) und über die Wörter ziehen.
    Antippen der grünen Stelle holt andere Formulierungen (`/rephrase`, eigener Prompt
    `proxy/prompt_passage.txt`).
-6. **Übernehmen** ersetzt den Feldtext. **Gesendet wird nie automatisch.**
+6. **Übernehmen** (✅) ersetzt den Feldtext. **Gesendet wird nie automatisch.**
 
 In Passwortfeldern sind die KI-Funktionen ausgeblendet.
 
@@ -128,7 +128,9 @@ Die aufklappbare Karte **Für Einrichter: Aussehen und Bedienung** stellt ein:
 - Schrift- und Tastengröße
 - fünf Farbschemata, darunter hoher Kontrast (Gelb auf Schwarz, Blau/Gelb)
 - Vorlesegeschwindigkeit
-- Vibration
+- **Ton beim Tippen** (Klickton, Standard: an)
+- **Vibration beim Tippen** (Standard: an)
+- **Ansage „KI übersetzt“** beim Verbessern (Standard: an)
 
 Standard ist das ursprüngliche Aussehen. Änderungen gelten, sobald die Tastatur wieder geöffnet wird.
 

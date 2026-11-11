@@ -307,6 +307,8 @@ class MainActivity : Activity() {
             setPadding(dp(8), dp(14), 0, dp(4))
             setOnCheckedChangeListener { _, on -> Look.setVibration(this@MainActivity, on) }
         })
+        box.addView(option("Ton beim Tippen", Look.keySound(this)) { Look.setKeySound(this, it) })
+        box.addView(option("Beim Verbessern vorher „KI übersetzt“ sagen", Look.announce(this)) { Look.setAnnounce(this, it) })
 
         box.addView(body("Die Änderungen gelten, sobald die Tastatur das nächste Mal geöffnet wird. Zum Ausprobieren unten in das Testfeld tippen.").apply {
             setPadding(0, dp(16), 0, 0)
@@ -315,6 +317,17 @@ class MainActivity : Activity() {
             Look.reset(this)
             renderLook(box)
         })
+    }
+
+    /** Ein Ein/Aus-Schalter mit Text, im Stil der anderen Einstellungen. */
+    private fun option(label: String, checked: Boolean, onChange: (Boolean) -> Unit) = CheckBox(this).apply {
+        text = label
+        isChecked = checked
+        setTextColor(cText)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+        buttonTintList = ColorStateList.valueOf(cGreen)
+        setPadding(dp(8), dp(14), 0, dp(4))
+        setOnCheckedChangeListener { _, on -> onChange(on) }
     }
 
     private fun section(s: String) = text(s, 13f, cMuted, bold = true).apply {

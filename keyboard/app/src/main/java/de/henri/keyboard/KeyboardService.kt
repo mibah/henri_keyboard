@@ -9,8 +9,13 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.inputmethodservice.InputMethodService
+import android.media.AudioAttributes
+import android.media.SoundPool
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.text.InputType
@@ -46,6 +51,18 @@ class KeyboardService : InputMethodService() {
     private var speaking = false
     private var utteranceCounter = 0
     private var currentUtterance = ""
+
+    // Ansage "KI übersetzt" beim Drücken von Verbessern: erst ganz sagen, dann das Ergebnis zeigen
+    private var announcing = false
+    private var announceUtterance = ""
+    private var afterAnnouncement: (() -> Unit)? = null
+    private val announceTimeout = Runnable { finishAnnouncement() }
+
+    // Rückmeldung beim Tippen: Klickton und Vibration
+    private var sounds: SoundPool? = null
+    private var clickId = 0
+    private var clickLoaded = false
+    private var vibrator: Vibrator? = null
 
     private lateinit var suggestionView: TextView
     private lateinit var scrollHint: TextView
@@ -91,6 +108,23 @@ class KeyboardService : InputMethodService() {
         super.onCreate()
         look = Look.load(this)
         initTts()
+        initFeedback()
+    }
+
+    private fun initFeedback() {
+        vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        try {
+            val attrs = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+            sounds = SoundPool.Builder().setMaxStreams(4).setAudioAttributes(attrs).build().also { pool ->
+                pool.setOnLoadCompleteListener { _, id, status -> if (status == 0 && id == clickId) clickLoaded = true }
+                clickId = pool.load(this, R.raw.key_click, 1)
+            }
+        } catch (e: Exception) {
+            sounds = null // ohne Ton weiterarbeiten, Tippen geht trotzdem
+        }
     }
 
     /**
@@ -123,6 +157,8 @@ class KeyboardService : InputMethodService() {
     }
 
     override fun onDestroy() {
+        main.removeCallbacks(announceTimeout)
+        sounds?.release()
         tts?.shutdown()
         executor.shutdownNow()
         super.onDestroy()
@@ -187,10 +223,10 @@ class KeyboardService : InputMethodService() {
         root.addView(hintRow, LinearLayout.LayoutParams(-1, -2))
 
         aiBar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        aiBar.addView(bigButton("Verbessern", look.btnImprove) { improve() }, weighted(1.2f))
-        speakButton = bigButton("Vorlesen", look.btnSpeak) { speakCurrent() }
+        aiBar.addView(bigButton(ICON_IMPROVE, "Verbessern", look.btnImprove) { improve() }, weighted(1.2f))
+        speakButton = bigButton(ICON_SPEAK, "Vorlesen", look.btnSpeak) { speakCurrent() }
         aiBar.addView(speakButton, weighted(1f))
-        applyButton = bigButton("Übernehmen", look.btnApply) { applySuggestion() }
+        applyButton = bigButton(ICON_APPLY, "Übernehmen", look.btnApply) { applySuggestion() }
         aiBar.addView(applyButton, weighted(1.2f))
         root.addView(aiBar, LinearLayout.LayoutParams(-1, dp(56)))
 
@@ -257,6 +293,7 @@ class KeyboardService : InputMethodService() {
         val id = ++requestId
         showStatus("Einen Moment …")
         showBusy("Ich überarbeite deinen Text …")
+        startAnnouncement()
         executor.execute {
             val result = try {
                 Api.correct(this, text)
@@ -265,24 +302,56 @@ class KeyboardService : InputMethodService() {
             }
             main.post {
                 if (id != requestId) return@post // inzwischen neuere Anfrage oder Feld gewechselt
-                when {
-                    result == null -> showStatus("Keine Verbindung zum Server.")
-                    result == text -> showStatus("Schon in Ordnung: $text")
-                        .also { speak("Schon in Ordnung.") }
-                    else -> {
-                        sourceText = text
-                        suggestion = result
-                        resetRewordState()
-                        showSuggestionText(result)
-                        suggestionView.scrollTo(0, 0)
-                        suggestionView.visibility = View.VISIBLE
-                        suggestionView.post { resetHint() }
-                        refreshApplyButton()
-                        if (Api.autoSpeak(this)) speak(result)
-                    }
+                // Auch bei sehr schneller Antwort wird erst die Ansage zu Ende gesprochen, dann das Ergebnis gezeigt.
+                whenAnnouncementDone {
+                    if (id == requestId) showCorrection(text, result)
                 }
             }
         }
+    }
+
+    private fun showCorrection(text: String, result: String?) {
+        when {
+            result == null -> showStatus("Keine Verbindung zum Server.")
+            result == text -> showStatus("Schon in Ordnung: $text")
+                .also { speak("Schon in Ordnung.") }
+            else -> {
+                sourceText = text
+                suggestion = result
+                resetRewordState()
+                showSuggestionText(result)
+                suggestionView.scrollTo(0, 0)
+                suggestionView.visibility = View.VISIBLE
+                suggestionView.post { resetHint() }
+                refreshApplyButton()
+                if (Api.autoSpeak(this)) speak(result)
+            }
+        }
+    }
+
+    // ---------- Ansage beim Verbessern ----------
+
+    /** Sagt einmal „KI übersetzt“ (wenn in der App nicht abgeschaltet). Das Ergebnis erscheint erst danach. */
+    private fun startAnnouncement() {
+        finishAnnouncement(runPending = false) // eine noch laufende frühere Ansage verwerfen
+        if (!look.announce || !ttsReady) return
+        speak(ANNOUNCE_TEXT, retry = false)
+        if (!ttsReady) return // die Sprachausgabe ließ sich nicht starten: nicht warten
+        announceUtterance = currentUtterance
+        announcing = true
+        main.postDelayed(announceTimeout, ANNOUNCE_MAX_MS) // Sicherung: das Ergebnis darf nie ewig warten
+    }
+
+    private fun whenAnnouncementDone(block: () -> Unit) {
+        if (announcing) afterAnnouncement = block else block()
+    }
+
+    private fun finishAnnouncement(runPending: Boolean = true) {
+        announcing = false
+        main.removeCallbacks(announceTimeout)
+        val pending = afterAnnouncement
+        afterAnnouncement = null
+        if (runPending) pending?.invoke()
     }
 
     private fun applySuggestion() {
@@ -336,13 +405,17 @@ class KeyboardService : InputMethodService() {
 
     /** Ende einer Ansage; Meldungen einer schon abgelösten Ansage werden ignoriert. */
     private fun utteranceEnded(id: String?) {
-        main.post { if (id == currentUtterance) setSpeaking(false) }
+        main.post {
+            if (id == currentUtterance) setSpeaking(false)
+            if (announcing && id == announceUtterance) finishAnnouncement()
+        }
     }
 
     private fun setSpeaking(on: Boolean) {
         speaking = on
         if (!::speakButton.isInitialized) return
-        speakButton.text = if (on) "Stopp" else "Vorlesen"
+        speakButton.text = if (on) ICON_STOP else ICON_SPEAK
+        speakButton.contentDescription = if (on) "Stopp" else "Vorlesen"
         val fill = if (on) stopBg else look.btnSpeak
         (speakButton.background as? GradientDrawable)?.setColor(fill)
         speakButton.setTextColor(Look.onColor(fill))
@@ -733,7 +806,7 @@ class KeyboardService : InputMethodService() {
         if (isLetter) letterKeys.add(k to label)
         k.setOnTouchListener { v, e ->
             if (e.action == MotionEvent.ACTION_DOWN) {
-                buzz(v)
+                feedback(v)
                 typeText(if (isLetter && shift) label.uppercase() else label)
                 showPress(v as TextView)
             } else if (e.action == MotionEvent.ACTION_UP || e.action == MotionEvent.ACTION_CANCEL) {
@@ -748,7 +821,7 @@ class KeyboardService : InputMethodService() {
         val k = keyView(label, weight, color)
         k.setOnTouchListener { v, e ->
             if (e.action == MotionEvent.ACTION_DOWN) {
-                buzz(v)
+                feedback(v, PITCH_ACTION)
                 showPress(v as TextView)
                 onTap()
             } else if (e.action == MotionEvent.ACTION_UP || e.action == MotionEvent.ACTION_CANCEL) {
@@ -772,7 +845,7 @@ class KeyboardService : InputMethodService() {
         k.setOnTouchListener { v, e ->
             when (e.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    buzz(v)
+                    feedback(v, PITCH_ACTION)
                     showPress(v as TextView)
                     sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL)
                     main.postDelayed(repeater, 400)
@@ -805,11 +878,18 @@ class KeyboardService : InputMethodService() {
         layoutParams = lp
     }
 
-    private fun bigButton(label: String, color: Int, onTap: () -> Unit) = TextView(this).apply {
-        text = label
+    /**
+     * Großer Knopf mit einem Emoji statt Text: ein Zeichen bricht auch bei großer Schrift nie um.
+     * [description] ist der Name für Vorlese-Hilfen (TalkBack).
+     */
+    private fun bigButton(icon: String, description: String, color: Int, onTap: () -> Unit) = TextView(this).apply {
+        text = icon
+        contentDescription = description
         gravity = Gravity.CENTER
+        maxLines = 1
+        includeFontPadding = false
         setTextColor(Look.onColor(color))
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 19f * scaleFor(0.6f))
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 26f * scaleFor(0.6f))
         setTypeface(typeface, Typeface.BOLD)
         background = GradientDrawable().apply {
             setColor(color)
@@ -817,7 +897,7 @@ class KeyboardService : InputMethodService() {
             if (look.keyStroke != 0) setStroke(dp(2), look.keyStroke)
         }
         setOnClickListener {
-            buzz(it)
+            feedback(it, PITCH_BUTTON)
             onTap()
         }
     }
@@ -846,9 +926,33 @@ class KeyboardService : InputMethodService() {
 
     private fun hintPassage() = if (look.themeId == Look.STANDARD) HINT_PASSAGE else HINT_PASSAGE_NEUTRAL
 
-    /** Kurzes Vibrieren beim Tippen, wenn es in der App nicht abgeschaltet wurde. */
-    private fun buzz(v: View) {
-        if (look.vibration) v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+    /** Klickton und kurzes Vibrieren beim Tippen, sofern in der Henri-App nicht abgeschaltet (Standard: beides an). */
+    private fun feedback(v: View, pitch: Float = 1f) {
+        if (look.keySound) playClick(pitch)
+        if (look.vibration) vibrate(v)
+    }
+
+    private fun playClick(pitch: Float) {
+        if (clickLoaded) sounds?.play(clickId, 1f, 1f, 1, 0, pitch)
+    }
+
+    /** Vibriert direkt, damit es auch geht, wenn Android die Tastatur-Vibration im System abgeschaltet hat. */
+    private fun vibrate(v: View) {
+        val vib = vibrator
+        if (vib == null || !vib.hasVibrator()) {
+            v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            return
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= 26) {
+                vib.vibrate(VibrationEffect.createOneShot(VIBRATE_MS, VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                @Suppress("DEPRECATION")
+                vib.vibrate(VIBRATE_MS)
+            }
+        } catch (e: Exception) {
+            v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+        }
     }
 
     /** Wie stark eine Schrift mit der Tastenschrift mitwächst (1 = voll, 0 = gar nicht). */
@@ -904,6 +1008,20 @@ class KeyboardService : InputMethodService() {
         private const val HINT_DRAG = "Ziehen, dann loslassen …"
         private const val HINT_PASSAGE = "Grüne Stelle nochmal antippen: andere Formulierung."
         private const val MAX_SELECT_WORDS = 15
+
+        // Knöpfe der KI-Leiste: Emojis statt Text (Namen für Vorlese-Hilfen stehen bei bigButton)
+        private const val ICON_IMPROVE = "✏️"
+        private const val ICON_SPEAK = "🔊"
+        private const val ICON_APPLY = "✅"
+        private const val ICON_STOP = "⏹️"
+
+        // Was beim Drücken von Verbessern gesagt wird, bevor das Ergebnis erscheint
+        private const val ANNOUNCE_TEXT = "KI übersetzt"
+        private const val ANNOUNCE_MAX_MS = 4000L
+
+        private const val VIBRATE_MS = 20L
+        private const val PITCH_ACTION = 0.8f // Sondertasten klingen etwas tiefer als Buchstaben
+        private const val PITCH_BUTTON = 0.65f
     }
 }
 
