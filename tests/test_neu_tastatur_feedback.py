@@ -131,7 +131,7 @@ class TestZweimalTippen(unittest.TestCase):
 
     def test_erstes_tippen_markiert_zweites_fuehrt_aus(self):
         self.assertIn("val execute = !look.confirmTap || !needsConfirm() || armedButton === this", self.button)
-        self.assertRegex(self.button, r"if \(execute\) \{\s*disarm\(\)\s*onTap\(\)\s*\} else \{\s*arm\(this, color\)")
+        self.assertRegex(self.button, r"if \(execute\) \{\s*disarm\(\)\s*onTap\(\)\s*\} else \{\s*arm\(this\)")
 
     def test_alle_drei_knoepfe_laufen_darueber(self):
         for call in ('bigButton(ICON_IMPROVE, "Verbessern"', 'bigButton(ICON_SPEAK, "Vorlesen"', 'bigButton(ICON_APPLY, "Übernehmen"'):
@@ -152,15 +152,19 @@ class TestZweimalTippen(unittest.TestCase):
         self.assertIn("ARM_MS = 6000L", self.ks)
         self.assertIn("main.removeCallbacks(disarmTimeout)", self.ks)
 
-    def test_dicker_rand_und_rueckbau(self):
-        arm = self.ks[self.ks.index("private fun arm("):self.ks.index("private fun armColor(")]
-        self.assertIn("setStroke(dp(6), armColor(fill))", arm)
-        self.assertIn("if (look.keyStroke != 0) bgDrawable.setStroke(dp(2), look.keyStroke) else bgDrawable.setStroke(0, 0)", arm,
+    def test_dicker_rand_dunkle_fuellung_und_rueckbau(self):
+        arm = self.ks[self.ks.index("private fun arm("):self.ks.index("private fun disarm(")]
+        self.assertIn("setStroke(dp(6), look.select)", arm)
+        self.assertIn("setColor(look.selectFill)", arm)
+        disarm = self.ks[self.ks.index("private fun disarm("):self.ks.index("private fun weighted(")]
+        self.assertIn("shape.setColor(button.tag as? Int ?: look.btnSpeak)", disarm, "die Knopffarbe muss zurückkommen")
+        self.assertIn("if (look.keyStroke != 0) shape.setStroke(dp(2), look.keyStroke) else shape.setStroke(0, 0)", disarm,
                       "nach dem Aufheben muss der Knopf wieder aussehen wie vorher")
 
-    def test_randfarbe_mit_gutem_kontrast(self):
-        self.assertIn("fun contrast(a: Int, b: Int): Double", self.look)
-        self.assertIn("Look.contrast(it, fill), Look.contrast(it, look.bg)", self.ks)
+    def test_knopffarbe_steht_im_tag_auch_beim_vorlesen(self):
+        self.assertIn("tag = color", self.button)
+        self.assertIn("speakButton.tag = fill", self.ks)
+        self.assertIn("if (armedButton !== speakButton)", self.ks)
 
     def test_zwei_unterschiedliche_toene(self):
         self.assertIn("PITCH_SELECT = 0.9f", self.ks)
@@ -168,6 +172,107 @@ class TestZweimalTippen(unittest.TestCase):
 
     def test_namen_fuer_vorlesehilfen_bleiben(self):
         self.assertIn("contentDescription = description", self.button)
+
+
+def _luminance(c):
+    def lin(v):
+        v /= 255
+        return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+    return 0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2])
+
+
+def _contrast(a, b):
+    la, lb = _luminance(a), _luminance(b)
+    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+
+
+def _themes():
+    """Liest die Farbschemata aus Look.kt: Name -> {Feld: (r, g, b)}."""
+    src = kotlin("Look.kt")
+    named = {k: v for k, v in ((m.group(1), tuple(int(x) for x in m.groups()[1:])) for m in
+                               re.finditer(r"private val (\w+) = Color\.rgb\((\d+), (\d+), (\d+)\)", src))}
+    named.update({"Color.WHITE": (255, 255, 255), "Color.BLACK": (0, 0, 0)})
+
+    def color(expr):
+        expr = expr.strip()
+        m = re.fullmatch(r"Color\.rgb\((\d+), (\d+), (\d+)\)", expr)
+        if m:
+            return tuple(int(x) for x in m.groups())
+        return named[expr]
+    out = {}
+    for block in src.split("Theme(")[1:]:
+        if "Palette(" not in block:  # die Klassendefinition "class Theme(val id ..." überspringen
+            continue
+        theme_id = re.match(r'\s*("?)(\w+)\1', block).group(2)
+        palette = block[block.index("Palette("):]
+        fields = {}
+        for m in re.finditer(r"(\w+) = (Color\.rgb\(\d+, \d+, \d+\)|Color\.WHITE|Color\.BLACK|\w+)(?=,|\n|\))", palette):
+            try:
+                fields[m.group(1)] = color(m.group(2))
+            except KeyError:
+                pass
+        out[theme_id] = fields
+    return out
+
+
+class TestRandfarben(unittest.TestCase):
+    """Markierter Knopf: leuchtender Rand, der sich bei jedem Farbschema deutlich abhebt (Menschen mit Sehbehinderung)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.themes = _themes()
+
+    def test_alle_fuenf_schemata_gefunden(self):
+        self.assertEqual(set(self.themes), {"STANDARD", "hell", "kontrast_weiss", "kontrast_gelb", "blau_gelb"})
+        for name, fields in self.themes.items():
+            with self.subTest(schema=name):
+                for field in ("bg", "select", "selectFill", "btnImprove", "btnSpeak", "btnApply"):
+                    self.assertIn(field, fields)
+
+    def test_rand_hebt_sich_von_hintergrund_und_fuellung_ab(self):
+        for name, f in self.themes.items():
+            with self.subTest(schema=name):
+                self.assertGreaterEqual(_contrast(f["select"], f["bg"]), 4.5, "Rand gegen Hintergrund (WCAG verlangt 3:1)")
+                self.assertGreaterEqual(_contrast(f["select"], f["selectFill"]), 4.5, "Rand gegen Füllung")
+
+    def test_fuellung_unterscheidet_sich_von_den_normalen_knoepfen(self):
+        # Ein markierter Knopf muss anders aussehen als die zwei anderen, nicht nur einen Rand haben.
+        for name, f in self.themes.items():
+            with self.subTest(schema=name):
+                for btn in ("btnImprove", "btnSpeak", "btnApply"):
+                    self.assertNotEqual(f["selectFill"], f[btn])
+
+    def test_randfarbe_ist_leuchtend(self):
+        import colorsys
+        for name, f in self.themes.items():
+            with self.subTest(schema=name):
+                h, s, v = colorsys.rgb_to_hsv(*(x / 255 for x in f["select"]))
+                self.assertGreaterEqual(s, 0.75, "kräftige, gesättigte Farbe statt Weiß oder Grau")
+
+    def test_randfarbe_nicht_weiss_schwarz_und_nicht_gelb_bei_gelb(self):
+        for name, f in self.themes.items():
+            with self.subTest(schema=name):
+                self.assertNotIn(f["select"], [(255, 255, 255), (0, 0, 0)])
+        import colorsys
+
+        def hue(c):
+            return colorsys.rgb_to_hsv(*(x / 255 for x in c))[0] * 360
+        # Bei Gelb auf Schwarz darf der Rand keine gelbe oder weiße Farbe sein: Abstand der Farbtöne zu Gelb mindestens 60 Grad.
+        diff = abs(hue(self.themes["kontrast_gelb"]["select"]) - hue((255, 230, 0)))
+        self.assertGreaterEqual(min(diff, 360 - diff), 60)
+
+    def test_randfarben_passen_zu_den_schemata(self):
+        t = self.themes
+        self.assertEqual(t["STANDARD"]["select"], (57, 255, 20), "Standard: helles Grün")
+        self.assertEqual(t["blau_gelb"]["select"], (57, 255, 20))
+        self.assertEqual(t["kontrast_weiss"]["select"], (255, 45, 200), "Pink")
+        self.assertEqual(t["kontrast_gelb"]["select"], (255, 45, 200))
+        self.assertEqual(t["hell"]["selectFill"], (255, 255, 255), "im hellen Schema weiße Füllung, dunkler Rand")
+
+    def test_service_nutzt_die_schemafarben_statt_fester_farben(self):
+        ks = kotlin("KeyboardService.kt")
+        self.assertIn("look.select", ks)
+        self.assertNotIn("armColor", ks)
 
 
 class TestEmojiKnoepfe(unittest.TestCase):
@@ -241,8 +346,8 @@ class TestAnsage(unittest.TestCase):
 class TestVersion(unittest.TestCase):
     def test_version(self):
         g = helpers.read("keyboard", "app", "build.gradle.kts")
-        self.assertIn('versionName = "0.5"', g)
-        self.assertIn("versionCode = 6", g)
+        self.assertIn('versionName = "0.5.1"', g)
+        self.assertIn("versionCode = 7", g)
 
 
 if __name__ == "__main__":

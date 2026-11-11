@@ -423,8 +423,11 @@ class KeyboardService : InputMethodService() {
         speakButton.text = if (on) ICON_STOP else ICON_SPEAK
         speakButton.contentDescription = if (on) "Stopp" else "Vorlesen"
         val fill = if (on) stopBg else look.btnSpeak
-        (speakButton.background as? GradientDrawable)?.setColor(fill)
-        speakButton.setTextColor(Look.onColor(fill))
+        speakButton.tag = fill
+        if (armedButton !== speakButton) { // ein markierter Knopf behält seine Markierungsfarbe
+            (speakButton.background as? GradientDrawable)?.setColor(fill)
+            speakButton.setTextColor(Look.onColor(fill))
+        }
     }
 
     private fun showStatus(msg: String) {
@@ -900,6 +903,7 @@ class KeyboardService : InputMethodService() {
         onTap: () -> Unit,
     ) = TextView(this).apply {
         text = icon
+        tag = color
         contentDescription = description
         gravity = Gravity.CENTER
         maxLines = 1
@@ -920,18 +924,25 @@ class KeyboardService : InputMethodService() {
                 disarm()
                 onTap()
             } else {
-                arm(this, color)
+                arm(this)
             }
         }
     }
 
     // ---------- Erst markieren, dann ausführen ----------
 
-    /** Markiert einen Knopf mit dickem Rand. Nach [ARM_MS] ohne zweites Tippen ist die Markierung wieder weg. */
-    private fun arm(button: TextView, fill: Int) {
+    /**
+     * Markiert einen Knopf: dicker leuchtender Rand in der Farbe des Farbschemas und dunkle Füllung (im hellen
+     * Schema weiß). So hebt sich der Rand von Hintergrund und Füllung gleichermaßen ab, bei jedem Knopf.
+     * Nach [ARM_MS] ohne zweites Tippen ist die Markierung wieder weg.
+     */
+    private fun arm(button: TextView) {
         disarm()
         armedButton = button
-        (button.background as? GradientDrawable)?.setStroke(dp(6), armColor(fill))
+        (button.background as? GradientDrawable)?.apply {
+            setColor(look.selectFill)
+            setStroke(dp(6), look.select)
+        }
         main.postDelayed(disarmTimeout, ARM_MS)
     }
 
@@ -939,14 +950,9 @@ class KeyboardService : InputMethodService() {
         main.removeCallbacks(disarmTimeout)
         val button = armedButton ?: return
         armedButton = null
-        val bgDrawable = button.background as? GradientDrawable ?: return
-        if (look.keyStroke != 0) bgDrawable.setStroke(dp(2), look.keyStroke) else bgDrawable.setStroke(0, 0)
-    }
-
-    /** Randfarbe mit dem besten Kontrast zum Knopf und zum Hintergrund der Tastatur. */
-    private fun armColor(fill: Int): Int {
-        val candidates = listOf(Color.WHITE, Color.BLACK, Color.rgb(255, 230, 0))
-        return candidates.maxByOrNull { minOf(Look.contrast(it, fill), Look.contrast(it, look.bg)) } ?: Color.WHITE
+        val shape = button.background as? GradientDrawable ?: return
+        shape.setColor(button.tag as? Int ?: look.btnSpeak) // die eigentliche Farbe des Knopfs steht im Tag
+        if (look.keyStroke != 0) shape.setStroke(dp(2), look.keyStroke) else shape.setStroke(0, 0)
     }
 
     private fun weighted(w: Float) = LinearLayout.LayoutParams(0, -1, w).apply {

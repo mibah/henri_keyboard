@@ -25,6 +25,10 @@ data class Palette(
     val btnSpeak: Int,
     val btnApply: Int,
     val btnStop: Int,
+    /** Rand eines markierten KI-Knopfs (leuchtend, mind. 4,5:1 zu Hintergrund und [selectFill]). */
+    val select: Int,
+    /** Füllung eines markierten KI-Knopfs: dunkel (im hellen Schema weiß), damit der Rand überall hervorsticht. */
+    val selectFill: Int,
 )
 
 /** Ein auswählbares Farbschema mit Name und Beschreibung für die Einstellungen. */
@@ -66,6 +70,8 @@ data class Look(
     val btnSpeak get() = palette.btnSpeak
     val btnApply get() = palette.btnApply
     val btnStop get() = palette.btnStop
+    val select get() = palette.select
+    val selectFill get() = palette.selectFill
 
     /** Schriftfarbe auf einer Taste mit dem Hintergrund [fill]. */
     fun textOnKey(fill: Int) = if (fill == keyBg) keyText else onColor(fill)
@@ -98,6 +104,11 @@ data class Look(
         private val signalYellow = Color.rgb(255, 230, 0)
         private val cyan = Color.rgb(0, 229, 255)
 
+        // Randfarben für markierte Knöpfe: knallig, auch für Menschen mit Sehbehinderung gut zu sehen
+        private val lime = Color.rgb(57, 255, 20)
+        private val neonPink = Color.rgb(255, 45, 200)
+        private val deepPink = Color.rgb(200, 0, 120)
+
         val themes: List<Theme> = listOf(
             Theme(
                 STANDARD, "Standard (dunkel)", "Das bisherige Aussehen.",
@@ -109,6 +120,7 @@ data class Look(
                     hlSingle = yellow, hlMulti = Color.rgb(46, 204, 113), hlText = Color.BLACK,
                     btnImprove = Color.rgb(30, 120, 60), btnSpeak = Color.rgb(32, 82, 140),
                     btnApply = Color.rgb(160, 90, 0), btnStop = Color.rgb(176, 42, 42),
+                    select = lime, selectFill = Color.rgb(18, 18, 18),
                 )
             ),
             Theme(
@@ -122,6 +134,7 @@ data class Look(
                     hlSingle = Color.rgb(255, 213, 79), hlMulti = Color.rgb(120, 214, 150), hlText = Color.BLACK,
                     btnImprove = Color.rgb(20, 110, 55), btnSpeak = Color.rgb(25, 85, 165),
                     btnApply = Color.rgb(180, 95, 0), btnStop = Color.rgb(175, 35, 35),
+                    select = deepPink, selectFill = Color.WHITE,
                 )
             ),
             Theme(
@@ -134,6 +147,7 @@ data class Look(
                     hlSingle = signalYellow, hlMulti = cyan, hlText = Color.BLACK,
                     btnImprove = Color.rgb(0, 230, 118), btnSpeak = cyan,
                     btnApply = yellow, btnStop = Color.rgb(255, 99, 99),
+                    select = neonPink, selectFill = Color.BLACK,
                 )
             ),
             Theme(
@@ -147,6 +161,7 @@ data class Look(
                     hlSingle = Color.WHITE, hlMulti = cyan, hlText = Color.BLACK,
                     btnImprove = signalYellow, btnSpeak = cyan,
                     btnApply = Color.WHITE, btnStop = Color.rgb(255, 99, 99),
+                    select = neonPink, selectFill = Color.BLACK,
                 )
             ),
             Theme(
@@ -159,6 +174,7 @@ data class Look(
                     hlSingle = Color.rgb(255, 214, 0), hlMulti = Color.rgb(79, 195, 247), hlText = Color.BLACK,
                     btnImprove = Color.rgb(25, 118, 210), btnSpeak = Color.rgb(0, 150, 170),
                     btnApply = Color.rgb(255, 214, 0), btnStop = Color.rgb(250, 250, 250),
+                    select = lime, selectFill = Color.rgb(8, 16, 38),
                 )
             ),
         )
@@ -211,22 +227,6 @@ data class Look(
                 vibrationMs = VIBRATION_MS[level(c, K_VIBE, DEFAULT_VIBE, VIBRATION_MS.lastIndex)],
                 confirmTap = confirmTap(c),
             )
-        }
-
-        /** Relative Helligkeit einer Farbe (0 = schwarz, 1 = weiß). */
-        fun luminance(color: Int): Double {
-            fun lin(v: Int): Double {
-                val s = v / 255.0
-                return if (s <= 0.03928) s / 12.92 else ((s + 0.055) / 1.055).pow(2.4)
-            }
-            return 0.2126 * lin(Color.red(color)) + 0.7152 * lin(Color.green(color)) + 0.0722 * lin(Color.blue(color))
-        }
-
-        /** Kontrastverhältnis zweier Farben (1 = gleich, 21 = schwarz auf weiß). */
-        fun contrast(a: Int, b: Int): Double {
-            val la = luminance(a)
-            val lb = luminance(b)
-            return (maxOf(la, lb) + 0.05) / (minOf(la, lb) + 0.05)
         }
 
         /** Schwarz oder Weiß, je nachdem, was auf der Fläche [fill] besser lesbar ist. */
