@@ -308,7 +308,7 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, on -> Look.setVibration(this@MainActivity, on) }
         })
         box.addView(option("Ton beim Tippen", Look.keySound(this)) { Look.setKeySound(this, it) })
-        box.addView(option("Beim Verbessern vorher „KI übersetzt“ sagen", Look.announce(this)) { Look.setAnnounce(this, it) })
+        box.addView(option("Beim Verbessern vorher „Ich überarbeite deinen Text“ sagen", Look.announce(this)) { Look.setAnnounce(this, it) })
 
         box.addView(body("Die Änderungen gelten, sobald die Tastatur das nächste Mal geöffnet wird. Zum Ausprobieren unten in das Testfeld tippen.").apply {
             setPadding(0, dp(16), 0, 0)

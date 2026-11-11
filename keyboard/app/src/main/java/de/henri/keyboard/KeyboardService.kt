@@ -52,7 +52,7 @@ class KeyboardService : InputMethodService() {
     private var utteranceCounter = 0
     private var currentUtterance = ""
 
-    // Ansage "KI übersetzt" beim Drücken von Verbessern: erst ganz sagen, dann das Ergebnis zeigen
+    // Ansage beim Drücken von Verbessern: erst ganz sagen, dann das Ergebnis zeigen
     private var announcing = false
     private var announceUtterance = ""
     private var afterAnnouncement: (() -> Unit)? = null
@@ -292,7 +292,7 @@ class KeyboardService : InputMethodService() {
         }
         val id = ++requestId
         showStatus("Einen Moment …")
-        showBusy("Ich überarbeite deinen Text …")
+        showBusy("$ANNOUNCE_TEXT …")
         startAnnouncement()
         executor.execute {
             val result = try {
@@ -331,7 +331,7 @@ class KeyboardService : InputMethodService() {
 
     // ---------- Ansage beim Verbessern ----------
 
-    /** Sagt einmal „KI übersetzt“ (wenn in der App nicht abgeschaltet). Das Ergebnis erscheint erst danach. */
+    /** Sagt einmal den Text, der auch angezeigt wird (wenn in der App nicht abgeschaltet). Das Ergebnis erscheint erst danach. */
     private fun startAnnouncement() {
         finishAnnouncement(runPending = false) // eine noch laufende frühere Ansage verwerfen
         if (!look.announce || !ttsReady) return
@@ -936,23 +936,39 @@ class KeyboardService : InputMethodService() {
         if (clickLoaded) sounds?.play(clickId, 1f, 1f, 1, 0, pitch)
     }
 
-    /** Vibriert direkt, damit es auch geht, wenn Android die Tastatur-Vibration im System abgeschaltet hat. */
+    /**
+     * Vibriert direkt, damit es auch geht, wenn Android die Tastatur-Vibration im System abgeschaltet hat.
+     * Der Impuls ist voll stark und als Bedienungshilfe gekennzeichnet; so unterdrückt Android ihn weniger
+     * (z. B. im Stumm-Modus oder bei schwacher „Touch-Vibration“).
+     */
     private fun vibrate(v: View) {
         val vib = vibrator
         if (vib == null || !vib.hasVibrator()) {
-            v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            haptic(v)
             return
         }
         try {
             if (Build.VERSION.SDK_INT >= 26) {
-                vib.vibrate(VibrationEffect.createOneShot(VIBRATE_MS, VibrationEffect.DEFAULT_AMPLITUDE))
+                val strength = if (vib.hasAmplitudeControl()) 255 else VibrationEffect.DEFAULT_AMPLITUDE
+                val attrs = AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+                @Suppress("DEPRECATION")
+                vib.vibrate(VibrationEffect.createOneShot(VIBRATE_MS, strength), attrs)
             } else {
                 @Suppress("DEPRECATION")
                 vib.vibrate(VIBRATE_MS)
             }
         } catch (e: Exception) {
-            v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            haptic(v)
         }
+    }
+
+    /** Rückfall: das System-Tippgefühl, ohne auf die globale Einstellung zu hören. */
+    private fun haptic(v: View) {
+        @Suppress("DEPRECATION")
+        v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP, HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING)
     }
 
     /** Wie stark eine Schrift mit der Tastenschrift mitwächst (1 = voll, 0 = gar nicht). */
@@ -1015,11 +1031,11 @@ class KeyboardService : InputMethodService() {
         private const val ICON_APPLY = "✅"
         private const val ICON_STOP = "⏹️"
 
-        // Was beim Drücken von Verbessern gesagt wird, bevor das Ergebnis erscheint
-        private const val ANNOUNCE_TEXT = "KI übersetzt"
+        // Wird beim Drücken von Verbessern gesagt und (mit „ …“) auch angezeigt, bevor das Ergebnis erscheint
+        private const val ANNOUNCE_TEXT = "Ich überarbeite deinen Text"
         private const val ANNOUNCE_MAX_MS = 4000L
 
-        private const val VIBRATE_MS = 20L
+        private const val VIBRATE_MS = 40L
         private const val PITCH_ACTION = 0.8f // Sondertasten klingen etwas tiefer als Buchstaben
         private const val PITCH_BUTTON = 0.65f
     }

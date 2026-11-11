@@ -36,7 +36,7 @@ class TestEinstellungen(unittest.TestCase):
         self.assertIn("Look.setAnnounce", self.main)
         self.assertIn("Vibration beim Tippen", self.main)
         self.assertIn("Ton beim Tippen", self.main)
-        self.assertIn("KI übersetzt", self.main)
+        self.assertIn("Ich überarbeite deinen Text", self.main)
 
     def test_zuruecksetzen_stellt_die_standardwerte_wieder_her(self):
         self.assertRegex(self.look, r"fun reset\(c: Context\) = prefs\(c\)\.edit\(\)\.clear\(\)\.apply\(\)")
@@ -67,8 +67,12 @@ class TestTonUndVibration(unittest.TestCase):
     def test_vibration_direkt_und_mit_rueckfall(self):
         self.assertIn("VibrationEffect.createOneShot(VIBRATE_MS", self.ks)
         self.assertIn("Build.VERSION.SDK_INT >= 26", self.ks, "minSdk 21: ältere Geräte brauchen den alten Aufruf")
-        self.assertIn("performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)", self.ks)
+        self.assertIn("HapticFeedbackConstants.KEYBOARD_TAP", self.ks)
+        self.assertIn("FLAG_IGNORE_GLOBAL_SETTING", self.ks, "Rückfall darf nicht von der Systemeinstellung abhängen")
         self.assertIn("hasVibrator()", self.ks)
+        self.assertIn("USAGE_ASSISTANCE_ACCESSIBILITY", self.ks, "als Bedienungshilfe melden, damit Android es nicht unterdrückt")
+        self.assertIn("hasAmplitudeControl()", self.ks)
+        self.assertIn("VIBRATE_MS = 40L", self.ks, "20 ms war auf manchen Handys nicht zu spüren")
 
     def test_berechtigung_und_tondatei(self):
         manifest = helpers.read("keyboard", "app", "src", "main", "AndroidManifest.xml")
@@ -113,8 +117,12 @@ class TestAnsage(unittest.TestCase):
         cls.ks = kotlin("KeyboardService.kt")
         cls.improve = cls.ks[cls.ks.index("private fun improve()"):cls.ks.index("private fun showCorrection(")]
 
-    def test_text_der_ansage(self):
-        self.assertIn('ANNOUNCE_TEXT = "KI übersetzt"', self.ks)
+    def test_text_der_ansage_ist_der_angezeigte_text(self):
+        self.assertIn('ANNOUNCE_TEXT = "Ich überarbeite deinen Text"', self.ks)
+        # Anzeige und Ansage kommen aus derselben Stelle und können nicht auseinanderlaufen.
+        self.assertIn('showBusy("$ANNOUNCE_TEXT …")', self.ks)
+        self.assertIn("speak(ANNOUNCE_TEXT", self.ks)
+        self.assertNotIn("KI übersetzt", self.ks)
 
     def test_ansage_kommt_vor_der_anfrage_und_das_ergebnis_wartet(self):
         self.assertLess(self.improve.index("startAnnouncement()"), self.improve.index("Api.correct("))
@@ -150,8 +158,8 @@ class TestAnsage(unittest.TestCase):
 class TestVersion(unittest.TestCase):
     def test_version(self):
         g = helpers.read("keyboard", "app", "build.gradle.kts")
-        self.assertIn('versionName = "0.4"', g)
-        self.assertIn("versionCode = 4", g)
+        self.assertIn('versionName = "0.4.1"', g)
+        self.assertIn("versionCode = 5", g)
 
 
 if __name__ == "__main__":

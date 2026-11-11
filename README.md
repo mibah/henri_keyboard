@@ -45,7 +45,7 @@ E-Mail und jeder anderen App**, ohne Zugriff auf die Messenger selbst.
 ## 🔁 So funktioniert es
 
 1. **Tippen** (oder diktieren) mit der Henri Tastatur.
-2. **Verbessern** (✏️): Die Tastatur sagt einmal „KI übersetzt“. Der Text geht an den Proxy, das Modell korrigiert Rechtschreibung und Zeichensetzung.
+2. **Verbessern** (✏️): Die Tastatur sagt einmal „Ich überarbeite deinen Text“ (steht auch auf dem Bildschirm). Der Text geht an den Proxy, das Modell korrigiert Rechtschreibung und Zeichensetzung.
 3. Danach erscheint der Vorschlag **groß** und wird **vorgelesen** (Android-TTS). Auch bei sehr schneller Antwort wird die Ansage zuerst zu Ende gesprochen.
 4. **Falsches Wort im Vorschlag?** Antippen markiert es gelb, nochmal antippen holt ein anderes
    (Kandidaten vom Server, `/reword`). Danach wird ab diesem Satz weitergelesen.
@@ -130,7 +130,7 @@ Die aufklappbare Karte **Für Einrichter: Aussehen und Bedienung** stellt ein:
 - Vorlesegeschwindigkeit
 - **Ton beim Tippen** (Klickton, Standard: an)
 - **Vibration beim Tippen** (Standard: an)
-- **Ansage „KI übersetzt“** beim Verbessern (Standard: an)
+- **Ansage „Ich überarbeite deinen Text“** beim Verbessern (Standard: an)
 
 Standard ist das ursprüngliche Aussehen. Änderungen gelten, sobald die Tastatur wieder geöffnet wird.
 
