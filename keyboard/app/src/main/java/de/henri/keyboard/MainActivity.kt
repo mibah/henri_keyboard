@@ -309,6 +309,13 @@ class MainActivity : Activity() {
         })
         box.addView(option("Ton beim Tippen", Look.keySound(this)) { Look.setKeySound(this, it) })
         box.addView(option("Beim Verbessern vorher „Ich überarbeite deinen Text“ sagen", Look.announce(this)) { Look.setAnnounce(this, it) })
+        box.addView(section("STÄRKE DER VIBRATION"))
+        box.addView(chips(listOf("Leicht", "Kräftig", "Sehr kräftig"), Look.level(this, Look.K_VIBE, Look.DEFAULT_VIBE, Look.VIBRATION_MS.lastIndex)) {
+            Look.setLevel(this, Look.K_VIBE, it)
+            renderLook(box)
+        })
+        box.addView(section("KNÖPFE ✏️ 🔊 ✅"))
+        box.addView(option("Erst markieren, dann nochmal tippen (verhindert Vertippen)", Look.confirmTap(this)) { Look.setConfirmTap(this, it) })
 
         box.addView(body("Die Änderungen gelten, sobald die Tastatur das nächste Mal geöffnet wird. Zum Ausprobieren unten in das Testfeld tippen.").apply {
             setPadding(0, dp(16), 0, 0)

@@ -129,8 +129,9 @@ Die aufklappbare Karte **Für Einrichter: Aussehen und Bedienung** stellt ein:
 - fünf Farbschemata, darunter hoher Kontrast (Gelb auf Schwarz, Blau/Gelb)
 - Vorlesegeschwindigkeit
 - **Ton beim Tippen** (Klickton, Standard: an)
-- **Vibration beim Tippen** (Standard: an)
+- **Vibration beim Tippen** (Standard: an) mit einstellbarer Stärke (leicht, kräftig, sehr kräftig)
 - **Ansage „Ich überarbeite deinen Text“** beim Verbessern (Standard: an)
+- **Knöpfe erst markieren, dann tippen** (Standard: an): ✏️ 🔊 ✅ werden beim ersten Tippen mit einem dicken Rand markiert und erst beim zweiten Tippen ausgeführt. Das hilft bei Parallaxe und Zittern, weil man sieht, welchen Knopf man erwischt hat. Läuft das Vorlesen, stoppt ein einziges Tippen es sofort.
 
 Standard ist das ursprüngliche Aussehen. Änderungen gelten, sobald die Tastatur wieder geöffnet wird.
 

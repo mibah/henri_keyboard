@@ -51,7 +51,7 @@ class TestTonUndVibration(unittest.TestCase):
         for place in ("feedback(v)\n                typeText(", "feedback(v, PITCH_ACTION)\n                showPress(v as TextView)\n                onTap()",
                       "feedback(v, PITCH_ACTION)\n                    showPress(v as TextView)\n                    sendDownUpKeyEvents"):
             self.assertIn(place, self.ks)
-        self.assertIn("feedback(it, PITCH_BUTTON)", self.ks, "auch die KI-Knöpfe klicken")
+        self.assertIn("feedback(it, if (execute) PITCH_EXECUTE else PITCH_SELECT)", self.ks, "auch die KI-Knöpfe klicken")
         self.assertNotIn("buzz(", self.ks)
 
     def test_ton_und_vibration_folgen_den_optionen(self):
@@ -65,14 +65,15 @@ class TestTonUndVibration(unittest.TestCase):
         self.assertRegex(self.ks, r"catch \(e: Exception\) \{\s*sounds = null", "ohne Ton muss Tippen trotzdem gehen")
 
     def test_vibration_direkt_und_mit_rueckfall(self):
-        self.assertIn("VibrationEffect.createOneShot(VIBRATE_MS", self.ks)
+        self.assertIn("VibrationEffect.createOneShot(look.vibrationMs", self.ks)
         self.assertIn("Build.VERSION.SDK_INT >= 26", self.ks, "minSdk 21: ältere Geräte brauchen den alten Aufruf")
         self.assertIn("HapticFeedbackConstants.KEYBOARD_TAP", self.ks)
         self.assertIn("FLAG_IGNORE_GLOBAL_SETTING", self.ks, "Rückfall darf nicht von der Systemeinstellung abhängen")
         self.assertIn("hasVibrator()", self.ks)
         self.assertIn("USAGE_ASSISTANCE_ACCESSIBILITY", self.ks, "als Bedienungshilfe melden, damit Android es nicht unterdrückt")
         self.assertIn("hasAmplitudeControl()", self.ks)
-        self.assertIn("VIBRATE_MS = 40L", self.ks, "20 ms war auf manchen Handys nicht zu spüren")
+        self.assertIn("look.vibrationMs", self.ks)
+        self.assertNotIn("VIBRATE_MS", self.ks, "die Dauer kommt aus den Einstellungen")
 
     def test_berechtigung_und_tondatei(self):
         manifest = helpers.read("keyboard", "app", "src", "main", "AndroidManifest.xml")
@@ -85,6 +86,88 @@ class TestTonUndVibration(unittest.TestCase):
         peak = max(abs(v) for (v,) in struct.iter_unpack("<h", frames))
         self.assertGreater(peak, 8000, "der Klick muss gut hörbar sein")
         self.assertLess(os.path.getsize(path), 20_000)
+
+
+class TestVibrationsstaerke(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.look = kotlin("Look.kt")
+        cls.main = kotlin("MainActivity.kt")
+
+    def test_stufen_und_standard(self):
+        m = re.search(r"VIBRATION_MS = listOf\((\d+)L, (\d+)L, (\d+)L\)", self.look)
+        self.assertIsNotNone(m)
+        light, normal, strong = (int(x) for x in m.groups())
+        self.assertLess(light, normal)
+        self.assertLess(normal, strong)
+        self.assertIn("DEFAULT_VIBE = 1", self.look)
+        self.assertGreaterEqual(normal, 80, "ein einzelner kurzer Impuls ist langsam getippt kaum zu spüren")
+
+    def test_ohne_gespeicherte_einstellung_gilt_der_standard(self):
+        self.assertRegex(self.look, r"VIBRATION_MS\[level\(c, K_VIBE, DEFAULT_VIBE, VIBRATION_MS\.lastIndex\)\]")
+
+    def test_einstellung_in_der_app(self):
+        self.assertIn("STÄRKE DER VIBRATION", self.main)
+        self.assertRegex(self.main, r"Look\.level\(this, Look\.K_VIBE, Look\.DEFAULT_VIBE, Look\.VIBRATION_MS\.lastIndex\)")
+        for label in ("Leicht", "Kräftig", "Sehr kräftig"):
+            self.assertIn('"%s"' % label, self.main)
+
+
+class TestZweimalTippen(unittest.TestCase):
+    """Die drei KI-Knöpfe: erst antippen markiert (dicker Rand), nochmal antippen führt aus."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.ks = kotlin("KeyboardService.kt")
+        cls.look = kotlin("Look.kt")
+        cls.main = kotlin("MainActivity.kt")
+        cls.button = cls.ks[cls.ks.index("private fun bigButton("):cls.ks.index("// ---------- Erst markieren, dann ausführen")]
+
+    def test_standardmaessig_an_und_in_der_app_abschaltbar(self):
+        self.assertRegex(self.look, r"fun confirmTap\(c: Context\) = prefs\(c\)\.getBoolean\(K_CONFIRM, true\)")
+        self.assertIn("confirmTap = confirmTap(c)", self.look)
+        self.assertIn("Look.setConfirmTap", self.main)
+        self.assertIn("Erst markieren, dann nochmal tippen", self.main)
+
+    def test_erstes_tippen_markiert_zweites_fuehrt_aus(self):
+        self.assertIn("val execute = !look.confirmTap || !needsConfirm() || armedButton === this", self.button)
+        self.assertRegex(self.button, r"if \(execute\) \{\s*disarm\(\)\s*onTap\(\)\s*\} else \{\s*arm\(this, color\)")
+
+    def test_alle_drei_knoepfe_laufen_darueber(self):
+        for call in ('bigButton(ICON_IMPROVE, "Verbessern"', 'bigButton(ICON_SPEAK, "Vorlesen"', 'bigButton(ICON_APPLY, "Übernehmen"'):
+            self.assertIn(call, self.ks)
+        self.assertEqual(self.ks.count("bigButton("), 4, "drei Aufrufe plus die Definition")
+
+    def test_stopp_beim_vorlesen_ohne_zweites_tippen(self):
+        self.assertIn("needsConfirm = { !speaking }", self.ks)
+
+    def test_markierung_wird_aufgehoben(self):
+        # beim Tippen einer Taste, bei Sondertasten, Löschen, nach Ausführen, bei Feldwechsel und nach Zeitablauf
+        for place in ("disarm()\n                feedback(v)\n                typeText(",
+                      "disarm()\n                feedback(v, PITCH_ACTION)\n                showPress(v as TextView)\n                onTap()",
+                      "disarm()\n                    feedback(v, PITCH_ACTION)\n                    showPress(v as TextView)\n                    sendDownUpKeyEvents",
+                      "private fun clearSuggestion() {\n        disarm()"):
+            self.assertIn(place, self.ks)
+        self.assertIn("main.postDelayed(disarmTimeout, ARM_MS)", self.ks)
+        self.assertIn("ARM_MS = 6000L", self.ks)
+        self.assertIn("main.removeCallbacks(disarmTimeout)", self.ks)
+
+    def test_dicker_rand_und_rueckbau(self):
+        arm = self.ks[self.ks.index("private fun arm("):self.ks.index("private fun armColor(")]
+        self.assertIn("setStroke(dp(6), armColor(fill))", arm)
+        self.assertIn("if (look.keyStroke != 0) bgDrawable.setStroke(dp(2), look.keyStroke) else bgDrawable.setStroke(0, 0)", arm,
+                      "nach dem Aufheben muss der Knopf wieder aussehen wie vorher")
+
+    def test_randfarbe_mit_gutem_kontrast(self):
+        self.assertIn("fun contrast(a: Int, b: Int): Double", self.look)
+        self.assertIn("Look.contrast(it, fill), Look.contrast(it, look.bg)", self.ks)
+
+    def test_zwei_unterschiedliche_toene(self):
+        self.assertIn("PITCH_SELECT = 0.9f", self.ks)
+        self.assertIn("PITCH_EXECUTE = 1.25f", self.ks)
+
+    def test_namen_fuer_vorlesehilfen_bleiben(self):
+        self.assertIn("contentDescription = description", self.button)
 
 
 class TestEmojiKnoepfe(unittest.TestCase):
@@ -158,8 +241,8 @@ class TestAnsage(unittest.TestCase):
 class TestVersion(unittest.TestCase):
     def test_version(self):
         g = helpers.read("keyboard", "app", "build.gradle.kts")
-        self.assertIn('versionName = "0.4.1"', g)
-        self.assertIn("versionCode = 5", g)
+        self.assertIn('versionName = "0.5"', g)
+        self.assertIn("versionCode = 6", g)
 
 
 if __name__ == "__main__":

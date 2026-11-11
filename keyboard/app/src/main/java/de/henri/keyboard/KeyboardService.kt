@@ -58,6 +58,10 @@ class KeyboardService : InputMethodService() {
     private var afterAnnouncement: (() -> Unit)? = null
     private val announceTimeout = Runnable { finishAnnouncement() }
 
+    // Die drei KI-Knöpfe: erst antippen markiert (Rand), nochmal antippen führt aus
+    private var armedButton: TextView? = null
+    private val disarmTimeout = Runnable { disarm() }
+
     // Rückmeldung beim Tippen: Klickton und Vibration
     private var sounds: SoundPool? = null
     private var clickId = 0
@@ -158,6 +162,7 @@ class KeyboardService : InputMethodService() {
 
     override fun onDestroy() {
         main.removeCallbacks(announceTimeout)
+        main.removeCallbacks(disarmTimeout)
         sounds?.release()
         tts?.shutdown()
         executor.shutdownNow()
@@ -224,7 +229,8 @@ class KeyboardService : InputMethodService() {
 
         aiBar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         aiBar.addView(bigButton(ICON_IMPROVE, "Verbessern", look.btnImprove) { improve() }, weighted(1.2f))
-        speakButton = bigButton(ICON_SPEAK, "Vorlesen", look.btnSpeak) { speakCurrent() }
+        // Läuft gerade das Vorlesen, hält ein einziges Tippen es sofort an (kein zweites Tippen nötig).
+        speakButton = bigButton(ICON_SPEAK, "Vorlesen", look.btnSpeak, needsConfirm = { !speaking }) { speakCurrent() }
         aiBar.addView(speakButton, weighted(1f))
         applyButton = bigButton(ICON_APPLY, "Übernehmen", look.btnApply) { applySuggestion() }
         aiBar.addView(applyButton, weighted(1.2f))
@@ -432,6 +438,7 @@ class KeyboardService : InputMethodService() {
     }
 
     private fun clearSuggestion() {
+        disarm()
         requestId++
         suggestion = null
         sourceText = null
@@ -806,6 +813,7 @@ class KeyboardService : InputMethodService() {
         if (isLetter) letterKeys.add(k to label)
         k.setOnTouchListener { v, e ->
             if (e.action == MotionEvent.ACTION_DOWN) {
+                disarm()
                 feedback(v)
                 typeText(if (isLetter && shift) label.uppercase() else label)
                 showPress(v as TextView)
@@ -821,6 +829,7 @@ class KeyboardService : InputMethodService() {
         val k = keyView(label, weight, color)
         k.setOnTouchListener { v, e ->
             if (e.action == MotionEvent.ACTION_DOWN) {
+                disarm()
                 feedback(v, PITCH_ACTION)
                 showPress(v as TextView)
                 onTap()
@@ -845,6 +854,7 @@ class KeyboardService : InputMethodService() {
         k.setOnTouchListener { v, e ->
             when (e.action) {
                 MotionEvent.ACTION_DOWN -> {
+                    disarm()
                     feedback(v, PITCH_ACTION)
                     showPress(v as TextView)
                     sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL)
@@ -882,7 +892,13 @@ class KeyboardService : InputMethodService() {
      * Großer Knopf mit einem Emoji statt Text: ein Zeichen bricht auch bei großer Schrift nie um.
      * [description] ist der Name für Vorlese-Hilfen (TalkBack).
      */
-    private fun bigButton(icon: String, description: String, color: Int, onTap: () -> Unit) = TextView(this).apply {
+    private fun bigButton(
+        icon: String,
+        description: String,
+        color: Int,
+        needsConfirm: () -> Boolean = { true },
+        onTap: () -> Unit,
+    ) = TextView(this).apply {
         text = icon
         contentDescription = description
         gravity = Gravity.CENTER
@@ -897,9 +913,40 @@ class KeyboardService : InputMethodService() {
             if (look.keyStroke != 0) setStroke(dp(2), look.keyStroke)
         }
         setOnClickListener {
-            feedback(it, PITCH_BUTTON)
-            onTap()
+            // Mit „erst markieren, dann tippen“: das erste Tippen markiert nur, das zweite führt aus.
+            val execute = !look.confirmTap || !needsConfirm() || armedButton === this
+            feedback(it, if (execute) PITCH_EXECUTE else PITCH_SELECT)
+            if (execute) {
+                disarm()
+                onTap()
+            } else {
+                arm(this, color)
+            }
         }
+    }
+
+    // ---------- Erst markieren, dann ausführen ----------
+
+    /** Markiert einen Knopf mit dickem Rand. Nach [ARM_MS] ohne zweites Tippen ist die Markierung wieder weg. */
+    private fun arm(button: TextView, fill: Int) {
+        disarm()
+        armedButton = button
+        (button.background as? GradientDrawable)?.setStroke(dp(6), armColor(fill))
+        main.postDelayed(disarmTimeout, ARM_MS)
+    }
+
+    private fun disarm() {
+        main.removeCallbacks(disarmTimeout)
+        val button = armedButton ?: return
+        armedButton = null
+        val bgDrawable = button.background as? GradientDrawable ?: return
+        if (look.keyStroke != 0) bgDrawable.setStroke(dp(2), look.keyStroke) else bgDrawable.setStroke(0, 0)
+    }
+
+    /** Randfarbe mit dem besten Kontrast zum Knopf und zum Hintergrund der Tastatur. */
+    private fun armColor(fill: Int): Int {
+        val candidates = listOf(Color.WHITE, Color.BLACK, Color.rgb(255, 230, 0))
+        return candidates.maxByOrNull { minOf(Look.contrast(it, fill), Look.contrast(it, look.bg)) } ?: Color.WHITE
     }
 
     private fun weighted(w: Float) = LinearLayout.LayoutParams(0, -1, w).apply {
@@ -955,10 +1002,10 @@ class KeyboardService : InputMethodService() {
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                     .build()
                 @Suppress("DEPRECATION")
-                vib.vibrate(VibrationEffect.createOneShot(VIBRATE_MS, strength), attrs)
+                vib.vibrate(VibrationEffect.createOneShot(look.vibrationMs, strength), attrs)
             } else {
                 @Suppress("DEPRECATION")
-                vib.vibrate(VIBRATE_MS)
+                vib.vibrate(look.vibrationMs)
             }
         } catch (e: Exception) {
             haptic(v)
@@ -1035,9 +1082,10 @@ class KeyboardService : InputMethodService() {
         private const val ANNOUNCE_TEXT = "Ich überarbeite deinen Text"
         private const val ANNOUNCE_MAX_MS = 4000L
 
-        private const val VIBRATE_MS = 40L
+        private const val ARM_MS = 6000L // so lange bleibt ein markierter Knopf markiert
+        private const val PITCH_SELECT = 0.9f // markieren klingt tiefer, ausführen höher
+        private const val PITCH_EXECUTE = 1.25f
         private const val PITCH_ACTION = 0.8f // Sondertasten klingen etwas tiefer als Buchstaben
-        private const val PITCH_BUTTON = 0.65f
     }
 }
 

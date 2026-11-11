@@ -44,6 +44,8 @@ data class Look(
     val vibration: Boolean,
     val keySound: Boolean,
     val announce: Boolean,
+    val vibrationMs: Long,
+    val confirmTap: Boolean,
 ) {
     val bg get() = palette.bg
     val keyBg get() = palette.keyBg
@@ -78,6 +80,12 @@ data class Look(
         const val K_VIBRATION = "vibration"
         const val K_SOUND = "sound"
         const val K_ANNOUNCE = "announce"
+        const val K_VIBE = "vibeStrength"
+        const val K_CONFIRM = "confirmTap"
+
+        /** Dauer des Vibrierens pro Tastendruck: leicht, kräftig (Standard), sehr kräftig. Ein kurzer Impuls ist langsam getippt kaum zu spüren. */
+        val VIBRATION_MS = listOf(40L, 90L, 150L)
+        const val DEFAULT_VIBE = 1
 
         // Stufen; die jeweils erste bzw. mittlere ist der Standard (= bisheriges Aussehen).
         val KEY_TEXT_SP = listOf(26f, 30f, 34f)
@@ -181,6 +189,11 @@ data class Look(
 
         fun setAnnounce(c: Context, on: Boolean) = prefs(c).edit().putBoolean(K_ANNOUNCE, on).apply()
 
+        /** Die drei KI-Knöpfe: erst antippen = markieren (Rand), nochmal antippen = ausführen (Standard: an). */
+        fun confirmTap(c: Context) = prefs(c).getBoolean(K_CONFIRM, true)
+
+        fun setConfirmTap(c: Context, on: Boolean) = prefs(c).edit().putBoolean(K_CONFIRM, on).apply()
+
         fun reset(c: Context) = prefs(c).edit().clear().apply()
 
         fun load(c: Context): Look {
@@ -195,7 +208,25 @@ data class Look(
                 vibration = vibration(c),
                 keySound = keySound(c),
                 announce = announce(c),
+                vibrationMs = VIBRATION_MS[level(c, K_VIBE, DEFAULT_VIBE, VIBRATION_MS.lastIndex)],
+                confirmTap = confirmTap(c),
             )
+        }
+
+        /** Relative Helligkeit einer Farbe (0 = schwarz, 1 = weiß). */
+        fun luminance(color: Int): Double {
+            fun lin(v: Int): Double {
+                val s = v / 255.0
+                return if (s <= 0.03928) s / 12.92 else ((s + 0.055) / 1.055).pow(2.4)
+            }
+            return 0.2126 * lin(Color.red(color)) + 0.7152 * lin(Color.green(color)) + 0.0722 * lin(Color.blue(color))
+        }
+
+        /** Kontrastverhältnis zweier Farben (1 = gleich, 21 = schwarz auf weiß). */
+        fun contrast(a: Int, b: Int): Double {
+            val la = luminance(a)
+            val lb = luminance(b)
+            return (maxOf(la, lb) + 0.05) / (minOf(la, lb) + 0.05)
         }
 
         /** Schwarz oder Weiß, je nachdem, was auf der Fläche [fill] besser lesbar ist. */
